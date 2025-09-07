@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "padd-eink"
+version = "1.0.0"
+authors = [
+  { name="Sean Ostermann", email="sean@osty.ca" },
+]
+description = "A PADD-inspired e-ink display for Pi-hole v6 statistics on a Raspberry Pi."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Monitoring",
+    "Environment :: Console",
+]
+dependencies = [
+    "pihole6api",
+    "python-dotenv",
+    "Pillow",
+    "RPi.GPIO",
+    "richcolorlog",
+    # The waveshare library is often installed manually via manufacturer's instructions.
+]
+
+[project.urls]
+"Homepage" = "https://github.com/falkyre/padd-eink"
+"Bug Tracker" = "https://github.com/falkyre/padd-eink/issues"
+
+# This section creates the command-line tool, now named 'padd-eink'
+[project.scripts]
+padd-eink = "padd_eink.__main__:main"
+
+
