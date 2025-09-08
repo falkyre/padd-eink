@@ -6,13 +6,14 @@ import time
 import logging
 import argparse
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-# --- New Library Imports ---
-import RPi.GPIO as GPIO
+# --- Library Imports ---
+from gpiozero import Button 
 from dotenv import load_dotenv
-from pihole6api import Pihole6API
+from pihole6api import PiHole6Client
 from richcolorlog import setup_logging
+import epaper
 
 # --- Configuration ---
 # Load environment variables from .env file in the project's root directory
@@ -26,13 +27,6 @@ API_TOKEN = os.getenv("API_TOKEN")
 # Logger is configured in the main() function based on command-line args.
 logger = None
 
-# Waveshare EPD Driver
-try:
-    from waveshare_epd import epd2in7_V2
-except ImportError:
-    print("FATAL: Waveshare EPD library not found. Please ensure it's installed.")
-    sys.exit(1)
-
 # Display Configuration
 SPLASH_SCREEN_DURATION_SECONDS = 10
 SCREEN_AUTO_ROTATE_INTERVAL_SECONDS = 30
@@ -43,12 +37,13 @@ KEY1_PIN = 5
 KEY2_PIN = 6
 KEY3_PIN = 13
 KEY4_PIN = 19
-BUTTON_DEBOUNCE_MS = 300
+# Debounce time for gpiozero is in seconds
+BUTTON_DEBOUNCE_S = 0.3
 
 # --- Paths (Updated to use subdirectories) ---
 LOGO_PATH = os.path.join(project_dir, 'images', 'Pihole-eInk.jpg')
 HEADER_LOGO_PATH = os.path.join(project_dir, 'images', 'black-hole.png')
-FONT_PATH = os.path.join(project_dir, 'fonts', 'DejaVuSans.ttf')
+FONT_PATH = os.path.join(project_dir, 'fonts', 'Roboto-Regular.ttf')
 
 
 # --- Constants ---
@@ -80,6 +75,40 @@ def format_uptime(seconds):
     except (ValueError, TypeError):
         return "N/A"
 
+def compare_versions(version1, version2):
+    """
+    Compares two version strings numerically.
+    Returns:
+     1 if version1 > version2
+    -1 if version1 < version2
+     0 if version1 == version2
+    """
+    try:
+        # Strip leading 'v' or 'V' and split into components
+        v1_clean = version1.lstrip('vV')
+        v2_clean = version2.lstrip('vV')
+        
+        v1_parts = [int(part) for part in v1_clean.split('.')]
+        v2_parts = [int(part) for part in v2_clean.split('.')]
+    except (ValueError, AttributeError):
+        # Handle cases where conversion fails (e.g., non-numeric parts)
+        return 0 # Treat as equal if format is invalid
+
+    # Pad the shorter version list with zeros for correct comparison
+    max_len = max(len(v1_parts), len(v2_parts))
+    v1_parts.extend([0] * (max_len - len(v1_parts)))
+    v2_parts.extend([0] * (max_len - len(v2_parts)))
+
+    # Compare part by part
+    for i in range(max_len):
+        if v1_parts[i] > v2_parts[i]:
+            return 1
+        if v1_parts[i] < v2_parts[i]:
+            return -1
+
+    return 0 # Versions are equal
+
+
 # --- Data Fetching ---
 def refresh_data():
     """Fetches PADD summary data from the Pi-hole v6 API."""
@@ -109,6 +138,7 @@ def draw_splash_screen(epd, logo_image, width, height):
         pos_x = (width - logo_w) // 2
         pos_y = (height - logo_h) // 2
         image.paste(logo_image, (pos_x, pos_y))
+
     else:
         try:
             font = ImageFont.truetype(FONT_PATH, FONT_SIZE_HEADER_TITLE)
@@ -121,7 +151,7 @@ def draw_splash_screen(epd, logo_image, width, height):
         text_height = text_bbox[3] - text_bbox[1]
         draw.text(((width - text_width) / 2, (height - text_height) / 2), msg, font=font, fill=0)
     
-    epd.display_4Gray(epd.getbuffer(image))
+    epd.display_4Gray(epd.getbuffer_4Gray(image))
 
 def draw_header(draw, width, header_logo_img):
     """Draws the common header on the image."""
@@ -135,6 +165,9 @@ def draw_header(draw, width, header_logo_img):
     logo_x, logo_y = 5, 5
     title_x = logo_x
     if header_logo_img:
+        if header_logo_img.mode != '1':
+           header_logo_img  = header_logo_img.convert('1')
+           header_logo_img = ImageOps.invert(header_logo_img)
         header_logo_thumb = header_logo_img.copy()
         header_logo_thumb.thumbnail((40, 40))
         draw.bitmap((logo_x, logo_y), header_logo_thumb, fill=BLACK)
@@ -224,52 +257,63 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
         font_small = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
     except IOError:
         font_body, font_small = ImageFont.load_default(), ImageFont.load_default()
+    
     y = header_bottom_y + 10
     line_height = FONT_SIZE_BODY + 10
     any_updates = False
 
-    if not data or 'version' not in data:
-        draw.text((10, y), "No version data available.", font=font_body, fill=BLACK)
+    # Gracefully handle if the entire 'version' key is missing or null
+    version_data = data.get('version')
+    if not version_data:
+        draw.text((10, y), "Version data not available.", font=font_body, fill=BLACK)
         return
         
-    version_data = data.get('version', {})
-    
     def format_version(component_name, comp_data):
         nonlocal any_updates
+        # Gracefully handle if a component (e.g., 'core') is missing or null
+        if not comp_data:
+            return f"{component_name}: N/A"
+
         local = comp_data.get('local', {}).get('version', 'N/A')
         remote = comp_data.get('remote', {}).get('version', 'N/A')
-        update_available = remote > local and local != 'N/A'
+        
+        update_available = False
+        # Only compare versions if both are valid strings
+        if local != 'N/A' and remote != 'N/A':
+            # Use the robust numeric comparison function
+            if compare_versions(remote, local) > 0:
+                update_available = True
+
         if update_available:
             any_updates = True
+        
         display_str = f"{local}{'**' if update_available else ''}"
         return f"{component_name}: {display_str.ljust(10)}"
 
-    draw.text((10, y), format_version("Pi-hole", version_data.get('core', {})), font=font_body, fill=BLACK)
+    # Safely get each component dictionary, which might be None
+    draw.text((10, y), format_version("Pi-hole", version_data.get('core')), font=font_body, fill=BLACK)
     y += line_height
-    draw.text((10, y), format_version("Web UI ", version_data.get('web', {})), font=font_body, fill=BLACK)
+    draw.text((10, y), format_version("Web UI ", version_data.get('web')), font=font_body, fill=BLACK)
     y += line_height
-    draw.text((10, y), format_version("FTL    ", version_data.get('ftl', {})), font=font_body, fill=BLACK)
+    draw.text((10, y), format_version("FTL    ", version_data.get('ftl')), font=font_body, fill=BLACK)
     
     if any_updates:
         y += line_height + 5
         draw.text((10, y), "** Update available", font=font_small, fill=BLACK)
 
-def button_callback(pin):
-    """Handles all button presses."""
+# --- GPIO Button Handlers (gpiozero style) ---
+def handle_button_press(button_pin):
+    """Generic handler for all button presses."""
     global current_screen_index, force_redraw, last_data_refresh_time
-    time.sleep(0.05)
-    if GPIO.input(pin) != GPIO.LOW:
-        return
+    logger.info(f"Button press detected on GPIO {button_pin}")
 
-    logger.info(f"Button pressed on GPIO {pin}")
-
-    if pin == KEY1_PIN:
+    if button_pin == KEY1_PIN:      # Refresh
         last_data_refresh_time = 0
-    elif pin == KEY2_PIN:
+    elif button_pin == KEY2_PIN:    # Pi-hole Stats
         current_screen_index = 0
-    elif pin == KEY3_PIN:
+    elif button_pin == KEY3_PIN:    # System Stats
         current_screen_index = 1
-    elif pin == KEY4_PIN:
+    elif button_pin == KEY4_PIN:    # Version Stats
         current_screen_index = 2
     force_redraw = True
 
@@ -283,31 +327,43 @@ def main():
     args = parser.parse_args()
 
     log_level = getattr(logging, args.level, logging.INFO)
-    logger = setup_logging(show_locals=True, logfile=args.logfile, level=log_level)
+    # Conditionally enable rich tracebacks only for DEBUG level
+    show_tracebacks = (args.level == 'DEBUG')
+
+    show_tracebacks = True #temp
+
+    logger = setup_logging(
+        show_locals=True,
+        logfile=args.logfile,
+        level=log_level,
+        rich_tracebacks=show_tracebacks
+    )
+
     
     if not PIHOLE_IP or not API_TOKEN:
         logger.error("PIHOLE_IP and/or API_TOKEN not found in .env file.")
         sys.exit(1)
 
     protocol = "https" if args.secure else "http"
-    pihole = Pihole6API(f"{protocol}://{PIHOLE_IP}", token=API_TOKEN)
+    pihole = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
     logger.info(f"Attempting to connect to Pi-hole at {protocol}://{PIHOLE_IP}")
     logger.info("Starting PADD e-Ink Display...")
     epd = None
 
     try:
-        epd = epd2in7_V2.EPD()
-        epd.Init_4Gray()
+        epd = epaper.epaper('epd2in7_V2').EPD()
+
+        epd.init()
         epd.Clear()
+        epd.Init_4Gray()
         logger.info("EPD Initialized in 4-Gray mode.")
 
-        width = epd2in7_V2.EPD_HEIGHT
-        height = epd2in7_V2.EPD_WIDTH
+        width = epd.height
+        height = epd.width
         logger.info(f"Screen dimensions set to {width}x{height}")
 
         try:
-            splash_logo_base = Image.open(LOGO_PATH)
-            splash_logo_image = splash_logo_base.convert('L')
+            splash_logo_image = Image.open(LOGO_PATH)
         except FileNotFoundError:
             splash_logo_image = None
             logger.warning(f"Splash screen logo not found: {LOGO_PATH}")
@@ -325,11 +381,18 @@ def main():
         epd.init()
         epd.Clear()
 
-        GPIO.setmode(GPIO.BCM)
-        pins = [KEY1_PIN, KEY2_PIN, KEY3_PIN, KEY4_PIN]
-        for pin in pins:
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.add_event_detect(pin, GPIO.FALLING, callback=button_callback, bouncetime=BUTTON_DEBOUNCE_MS)
+        # Initialize buttons using gpiozero
+        logger.info("Initializing GPIO Buttons with gpiozero...")
+        button1 = Button(KEY1_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
+        button2 = Button(KEY2_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
+        button3 = Button(KEY3_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
+        button4 = Button(KEY4_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
+
+        # Assign a function to the when_pressed event of each button
+        button1.when_pressed = lambda: handle_button_press(KEY1_PIN)
+        button2.when_pressed = lambda: handle_button_press(KEY2_PIN)
+        button3.when_pressed = lambda: handle_button_press(KEY3_PIN)
+        button4.when_pressed = lambda: handle_button_press(KEY4_PIN)
         logger.info("GPIO Buttons Initialized.")
         
         screens = [draw_pihole_stats_screen, draw_system_info_screen, draw_version_screen]
@@ -364,7 +427,7 @@ def main():
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
     finally:
         logger.info("Cleaning up...")
-        GPIO.cleanup()
+        # No need for GPIO.cleanup(), gpiozero handles it automatically
         if epd:
             epd.Clear()
             epd.sleep()
