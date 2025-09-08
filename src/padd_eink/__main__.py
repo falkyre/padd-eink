@@ -43,7 +43,9 @@ BUTTON_DEBOUNCE_S = 0.3
 # --- Paths (Updated to use subdirectories) ---
 LOGO_PATH = os.path.join(project_dir, 'images', 'Pihole-eInk.jpg')
 HEADER_LOGO_PATH = os.path.join(project_dir, 'images', 'black-hole.png')
-FONT_PATH = os.path.join(project_dir, 'fonts', 'Roboto-Regular.ttf')
+# Switched to DejaVuSans for better character support (including checkmarks)
+FONT_PATH = os.path.join(project_dir, 'fonts', 'DejaVuSans.ttf')
+FONT_BOLD_PATH = os.path.join(project_dir, 'fonts', 'DejaVuSans-Bold.ttf')
 
 
 # --- Constants ---
@@ -191,144 +193,219 @@ def draw_header(draw, width, header_logo_img):
 def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     """Draws the main Pi-hole statistics screen."""
     try:
-        font_body = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
         font_small = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
+        font_small_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_SMALL)
     except IOError:
-        font_body, font_small = ImageFont.load_default(), ImageFont.load_default()
+        logger.warning("Could not load custom small fonts, using defaults.")
+        font_small = ImageFont.load_default()
+        font_small_bold = font_small
     
     y = header_bottom_y + 10
-    line_height = FONT_SIZE_BODY + 4
+    right_align_x = width - 10
 
     if not data:
-        draw.text((10, y), "No Pi-hole data available.", font=font_body, fill=BLACK)
+        draw.text((10, y), "No Pi-hole data available.", font=font_small, fill=BLACK)
         return
 
+    # --- Get all required data points with fallbacks ---
     queries_data = data.get('queries', {})
-    status = data.get('blocking', 'N/A').capitalize()
     blocked = queries_data.get('blocked', 0)
     total = queries_data.get('total', 0)
     percent = queries_data.get('percent_blocked', 0.0)
+    gravity_size = data.get('gravity_size', 0)
+    active_clients = data.get('active_clients', 0)
     
-    # --- New Top Stats ---
-    latest_blocked = data.get('recent_blocked', 'N/A')
-    top_ad = data.get('top_blocked', 'N/A')
-    top_domain = data.get('top_domain', 'N/A')
-    top_client = data.get('top_client', 'N/A')
-
-    draw.text((10, y), f"Status: {status}", font=font_body, fill=BLACK)
-    y += line_height + 4
-
-    # --- Percentage Bar ---
-    bar_x, bar_y = 10, y
-    bar_width, bar_height = width - 20, 15
-    draw.text((bar_x, bar_y), "Pi-holed:", font=font_small, fill=BLACK)
-    bar_y += FONT_SIZE_SMALL + 2
-
-    # Draw bar border
-    draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], outline=BLACK, fill=WHITE)
-    # Calculate and draw filled portion
-    fill_width = int(bar_width * (percent / 100.0))
-    if fill_width > 0:
-        draw.rectangle([bar_x, bar_y, bar_x + fill_width, bar_y + bar_height], fill=BLACK)
+    # --- Line 1: Blocking Info and Percentage Bar ---
+    # Draw "Blocking:" in bold
+    blocking_label = "Blocking:"
+    draw.text((10, y), blocking_label, font=font_small_bold, fill=BLACK)
     
-    # Text below bar
-    bar_text = f"{int(blocked):,} of {int(total):,} queries ({percent:.1f}%)"
+    # Calculate width of bold label to position the next part
+    blocking_label_bbox = draw.textbbox((0,0), blocking_label, font=font_small_bold)
+    blocking_label_width = blocking_label_bbox[2] - blocking_label_bbox[0]
+    
+    # Draw the rest of the prefix in regular font
+    prefix_remainder = f" {int(gravity_size):,} Piholed: "
+    draw.text((10 + blocking_label_width, y), prefix_remainder, font=font_small, fill=BLACK)
+
+    # Calculate total width of the full prefix to position the bar
+    prefix_remainder_bbox = draw.textbbox((0,0), prefix_remainder, font=font_small)
+    prefix_total_width = blocking_label_width + (prefix_remainder_bbox[2] - prefix_remainder_bbox[0])
+
+    # Position the bar immediately after the text
+    bar_height = 15
+    bar_x = 10 + prefix_total_width
+    bar_y = y - 2 # Vertically align bar with text
+    
+    bar_width = width - bar_x - 10
+
+    if bar_width > 10:
+        draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], outline=BLACK, fill=WHITE)
+        fill_width = int(bar_width * (percent / 100.0))
+        if fill_width > 0:
+            draw.rectangle([bar_x, bar_y, bar_x + fill_width, bar_y + bar_height], fill=BLACK)
+    else:
+        logger.warning("Not enough horizontal space to draw the percentage bar.")
+        bar_width = 0
+
+    # --- Line 2: Text below the bar (shifted left) ---
+    y = bar_y + bar_height + 2
+    bar_text = f"{int(blocked):,} of {int(total):,} ({percent:.1f}%)"
     text_bbox = draw.textbbox((0,0), bar_text, font=font_small)
     text_width = text_bbox[2] - text_bbox[0]
-    draw.text((bar_x + (bar_width - text_width) // 2, bar_y + bar_height + 2), bar_text, font=font_small, fill=BLACK)
-    y = bar_y + bar_height + FONT_SIZE_SMALL + 10 # Update Y position
 
-    # --- Draw Top Stats ---
-    draw.text((10, y), f"Latest:   {latest_blocked}", font=font_small, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Top Ad:   {top_ad}", font=font_small, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Top Dmn:  {top_domain}", font=font_small, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Top Clnt: {top_client}", font=font_small, fill=BLACK)
+    if bar_width > 0:
+        # Shift left by 5 pixels from the centered position
+        draw.text((bar_x + (bar_width - text_width) // 2 - 5, y), bar_text, font=font_small, fill=BLACK)
+    
+    y += FONT_SIZE_SMALL + 10 # Update Y position for the next section
+
+    # --- Draw Top Stats with new formatting ---
+    line_height_small = FONT_SIZE_SMALL + 4
+    top_stats = {
+        "Latest:": data.get('recent_blocked', 'N/A'),
+        "Top Ad:": data.get('top_blocked', 'N/A'),
+        "Top Dmn:": data.get('top_domain', 'N/A'),
+        "Top Clnt:": f"{data.get('top_client', 'N/A')} [Tot Clnts: {active_clients}]"
+    }
+
+    for label, value in top_stats.items():
+        # Draw bold label on the left
+        draw.text((10, y), label, font=font_small_bold, fill=BLACK)
+
+        # Draw right-aligned value
+        value_bbox = draw.textbbox((0,0), value, font=font_small)
+        value_width = value_bbox[2] - value_bbox[0]
+        draw.text((right_align_x - value_width, y), value, font=font_small, fill=BLACK)
+        
+        y += line_height_small
+
 
 def draw_system_info_screen(draw, width, height, data, header_bottom_y):
-    """Draws the Raspberry Pi system info screen."""
+    """Draws the Raspberry Pi system info screen with bold labels and right-aligned values."""
     try:
-        font_body = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
+        font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
+        font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
     except IOError:
-        font_body = ImageFont.load_default()
+        logger.warning(f"Bold or regular font not found, using default.")
+        font_bold = ImageFont.load_default()
+        font_regular = ImageFont.load_default()
+
     y = header_bottom_y + 10
     line_height = FONT_SIZE_BODY + 7
+    right_align_x = width - 10
+
     if not data:
-        draw.text((10, y), "No system data available.", font=font_body, fill=BLACK)
+        draw.text((10, y), "No system data available.", font=font_regular, fill=BLACK)
         return
 
+    # --- Prepare data ---
     system_data = data.get('system', {})
     hostname = data.get('node_name', 'N/A')
-    # Safely get IP address
     ip_address = data.get('iface', {}).get('v4', {}).get('addr', 'N/A')
-
     cpu_load = system_data.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
     mem_percent = system_data.get('memory', {}).get('ram', {}).get('%used', 0.0)
     cpu_temp = data.get('sensors', {}).get('cpu_temp', 0.0)
     uptime_seconds = system_data.get('uptime', 0)
 
-    draw.text((10, y), f"Host: {hostname} ({ip_address})", font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"CPU Load: {cpu_load:.1f}%", font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Memory:   {mem_percent:.1f}%", font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"CPU Temp: {cpu_temp:.1f}°C", font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Uptime:   {format_uptime(uptime_seconds)}", font=font_body, fill=BLACK)
+    # --- Create a dictionary of labels and values to draw ---
+    stats_to_draw = {
+        "Host:": f"{hostname} ({ip_address})",
+        "CPU Load:": f"{cpu_load:.1f}%",
+        "Memory:": f"{mem_percent:.1f}%",
+        "CPU Temp:": f"{cpu_temp:.1f}°C",
+        "Uptime:": format_uptime(uptime_seconds)
+    }
+
+    # --- Drawing Loop ---
+    for label, value in stats_to_draw.items():
+        # Draw bold label on the left
+        draw.text((10, y), label, font=font_bold, fill=BLACK)
+
+        # Calculate position for and draw right-aligned value
+        value_bbox = draw.textbbox((0, 0), value, font=font_regular)
+        value_width = value_bbox[2] - value_bbox[0]
+        draw.text((right_align_x - value_width, y), value, font=font_regular, fill=BLACK)
+        
+        y += line_height
+
 
 def draw_version_screen(draw, width, height, data, header_bottom_y):
     """Draws the component versions screen, indicating available updates."""
     try:
         font_body = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
-        font_small = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
+        font_body_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
+        font_small_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_SMALL)
     except IOError:
-        font_body, font_small = ImageFont.load_default(), ImageFont.load_default()
+        logger.warning("Could not load custom fonts for version screen, using defaults.")
+        font_body = ImageFont.load_default()
+        font_body_bold = font_body
+        font_small_bold = ImageFont.load_default()
     
     y = header_bottom_y + 10
     line_height = FONT_SIZE_BODY + 10
     any_updates = False
+    checkmark = "\u2713" # Unicode for checkmark
 
-    # Gracefully handle if the entire 'version' key is missing or null
     version_data = data.get('version')
     if not version_data:
         draw.text((10, y), "Version data not available.", font=font_body, fill=BLACK)
         return
         
-    def format_version(component_name, comp_data):
-        nonlocal any_updates
-        # Gracefully handle if a component (e.g., 'core') is missing or null
+    def get_version_status(comp_data):
+        """Returns a tuple: (display_string, has_update_bool)"""
         if not comp_data:
-            return f"{component_name}: N/A"
+            return ("N/A", False)
 
         local = comp_data.get('local', {}).get('version', 'N/A')
         remote = comp_data.get('remote', {}).get('version', 'N/A')
         
         update_available = False
-        # Only compare versions if both are valid strings
         if local != 'N/A' and remote != 'N/A':
-            # Use the robust numeric comparison function
             if compare_versions(remote, local) > 0:
                 update_available = True
 
         if update_available:
-            any_updates = True
+            display_str = f"{local}**"
+        else:
+            display_str = f"{local} {checkmark}" if local != 'N/A' else "N/A"
         
-        display_str = f"{local}{'**' if update_available else ''}"
-        return f"{component_name}: {display_str.ljust(10)}"
+        return (display_str, update_available)
 
-    # Safely get each component dictionary, which might be None
-    draw.text((10, y), format_version("Pi-hole", version_data.get('core')), font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), format_version("Web UI ", version_data.get('web')), font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), format_version("FTL    ", version_data.get('ftl')), font=font_body, fill=BLACK)
+    component_names = {
+        "Pi-hole:": version_data.get('core'),
+        "Web UI:": version_data.get('web'),
+        "FTL:": version_data.get('ftl')
+    }
+    right_align_x = width - 10
+
+    for name, comp_data in component_names.items():
+        version_str, has_update = get_version_status(comp_data)
+        if has_update:
+            any_updates = True
+
+        # Draw bold label on the left
+        draw.text((10, y), name, font=font_body_bold, fill=BLACK)
+        
+        # Draw right-aligned version string in regular font
+        version_bbox = draw.textbbox((0, 0), version_str, font=font_body)
+        version_width = version_bbox[2] - version_bbox[0]
+        draw.text((right_align_x - version_width, y), version_str, font=font_body, fill=BLACK)
+        
+        y += line_height
     
+    # --- Display status message at the bottom ---
+    y += 5
     if any_updates:
-        y += line_height + 5
-        draw.text((10, y), "** Update available", font=font_small, fill=BLACK)
+        status_text = "** Update available"
+    else:
+        status_text = f"{checkmark} {checkmark} SYSTEM IS HEALTHY {checkmark} {checkmark}"
+
+    # Center the status message using the bold small font
+    text_bbox = draw.textbbox((0, 0), status_text, font=font_small_bold)
+    text_width = text_bbox[2] - text_bbox[0]
+    draw.text(((width - text_width) / 2, y), status_text, font=font_small_bold, fill=BLACK)
+
 
 # --- GPIO Button Handlers (gpiozero style) ---
 def handle_button_press(button_pin):
@@ -353,13 +430,12 @@ def main():
     parser.add_argument('-l', '--level', type=str.upper, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help='Set the logging level (default: INFO)')
     parser.add_argument('-f', '--logfile', type=str, default=None, help='Specify a file to write logs to (e.g., padd_display.log)')
     parser.add_argument('-s', '--secure', action='store_true', default=False, help='Connect to Pi-hole using HTTPS')
+    parser.add_argument('-t', '--traceback', action='store_true', default=False, help='Force enable rich tracebacks for all log levels.')
     args = parser.parse_args()
 
     log_level = getattr(logging, args.level, logging.INFO)
-    # Conditionally enable rich tracebacks only for DEBUG level
-    show_tracebacks = (args.level == 'DEBUG')
-
-    show_tracebacks = True #temp
+    # Use the --traceback flag to override the default behavior
+    show_tracebacks = args.traceback
 
     logger = setup_logging(
         show_locals=True,
@@ -367,6 +443,8 @@ def main():
         level=log_level,
         rich_tracebacks=show_tracebacks
     )
+
+    logger.info(f"Show tracebacks is {show_tracebacks}")
 
     
     if not PIHOLE_IP or not API_TOKEN:
@@ -440,9 +518,9 @@ def main():
                 logger.info(f"Drawing screen {current_screen_index + 1}/{num_screens}...")
                 image = Image.new('1', (width, height), WHITE)
                 draw = ImageDraw.Draw(image)
-                header_end_y = draw_header(draw, width, header_logo_image)
+                header_bottom_y = draw_header(draw, width, header_logo_image)
                 
-                screens[current_screen_index](draw, width, height, padd_data, header_end_y)
+                screens[current_screen_index](draw, width, height, padd_data, header_bottom_y)
                 
                 epd.display(epd.getbuffer(image))
                 logger.info("EPD display updated.")
