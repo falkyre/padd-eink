@@ -29,7 +29,7 @@ logger = None
 
 # Display Configuration
 SPLASH_SCREEN_DURATION_SECONDS = 10
-SCREEN_AUTO_ROTATE_INTERVAL_SECONDS = 30
+SCREEN_AUTO_ROTATE_INTERVAL_SECONDS = 20
 INFO_REFRESH_INTERVAL_SECONDS = 60 * 2
 
 # GPIO Pin Configuration (BCM numbering)
@@ -192,10 +192,13 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     """Draws the main Pi-hole statistics screen."""
     try:
         font_body = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
+        font_small = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
     except IOError:
-        font_body = ImageFont.load_default()
+        font_body, font_small = ImageFont.load_default(), ImageFont.load_default()
+    
     y = header_bottom_y + 10
-    line_height = FONT_SIZE_BODY + 7
+    line_height = FONT_SIZE_BODY + 4
+
     if not data:
         draw.text((10, y), "No Pi-hole data available.", font=font_body, fill=BLACK)
         return
@@ -205,21 +208,44 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     blocked = queries_data.get('blocked', 0)
     total = queries_data.get('total', 0)
     percent = queries_data.get('percent_blocked', 0.0)
-    clients = data.get('active_clients', 0)
     
-    blocked_str = f"{int(blocked):,}"
-    total_str = f"{int(total):,}"
-    percent_str = f"{float(percent):.1f}%"
+    # --- New Top Stats ---
+    latest_blocked = data.get('recent_blocked', 'N/A')
+    top_ad = data.get('top_blocked', 'N/A')
+    top_domain = data.get('top_domain', 'N/A')
+    top_client = data.get('top_client', 'N/A')
 
     draw.text((10, y), f"Status: {status}", font=font_body, fill=BLACK)
+    y += line_height + 4
+
+    # --- Percentage Bar ---
+    bar_x, bar_y = 10, y
+    bar_width, bar_height = width - 20, 15
+    draw.text((bar_x, bar_y), "Pi-holed:", font=font_small, fill=BLACK)
+    bar_y += FONT_SIZE_SMALL + 2
+
+    # Draw bar border
+    draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], outline=BLACK, fill=WHITE)
+    # Calculate and draw filled portion
+    fill_width = int(bar_width * (percent / 100.0))
+    if fill_width > 0:
+        draw.rectangle([bar_x, bar_y, bar_x + fill_width, bar_y + bar_height], fill=BLACK)
+    
+    # Text below bar
+    bar_text = f"{int(blocked):,} of {int(total):,} queries ({percent:.1f}%)"
+    text_bbox = draw.textbbox((0,0), bar_text, font=font_small)
+    text_width = text_bbox[2] - text_bbox[0]
+    draw.text((bar_x + (bar_width - text_width) // 2, bar_y + bar_height + 2), bar_text, font=font_small, fill=BLACK)
+    y = bar_y + bar_height + FONT_SIZE_SMALL + 10 # Update Y position
+
+    # --- Draw Top Stats ---
+    draw.text((10, y), f"Latest:   {latest_blocked}", font=font_small, fill=BLACK)
     y += line_height
-    draw.text((10, y), f"Blocked Today: {blocked_str}", font=font_body, fill=BLACK)
+    draw.text((10, y), f"Top Ad:   {top_ad}", font=font_small, fill=BLACK)
     y += line_height
-    draw.text((10, y), f"Total Queries: {total_str}", font=font_body, fill=BLACK)
+    draw.text((10, y), f"Top Dmn:  {top_domain}", font=font_small, fill=BLACK)
     y += line_height
-    draw.text((10, y), f"Percent Blocked: {percent_str}", font=font_body, fill=BLACK)
-    y += line_height
-    draw.text((10, y), f"Active Clients: {clients}", font=font_body, fill=BLACK)
+    draw.text((10, y), f"Top Clnt: {top_client}", font=font_small, fill=BLACK)
 
 def draw_system_info_screen(draw, width, height, data, header_bottom_y):
     """Draws the Raspberry Pi system info screen."""
@@ -235,12 +261,15 @@ def draw_system_info_screen(draw, width, height, data, header_bottom_y):
 
     system_data = data.get('system', {})
     hostname = data.get('node_name', 'N/A')
+    # Safely get IP address
+    ip_address = data.get('iface', {}).get('v4', {}).get('addr', 'N/A')
+
     cpu_load = system_data.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
     mem_percent = system_data.get('memory', {}).get('ram', {}).get('%used', 0.0)
     cpu_temp = data.get('sensors', {}).get('cpu_temp', 0.0)
     uptime_seconds = system_data.get('uptime', 0)
 
-    draw.text((10, y), f"Host: {hostname}", font=font_body, fill=BLACK)
+    draw.text((10, y), f"Host: {hostname} ({ip_address})", font=font_body, fill=BLACK)
     y += line_height
     draw.text((10, y), f"CPU Load: {cpu_load:.1f}%", font=font_body, fill=BLACK)
     y += line_height
