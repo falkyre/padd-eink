@@ -1,123 +1,115 @@
-PADD e-Ink Display
-A PADD-inspired, button-controlled e-ink display for Pi-hole v6 statistics, designed to run on a Raspberry Pi with a Waveshare 2.7inch e-Paper HAT (V2).
+# **PADD e-Ink Display**
 
-Features
-Multiple Screens: Rotates through Pi-hole stats, system stats, and component versions.
+An e-ink display for Pi-hole v6 statistics, designed for a Waveshare 2.7-inch e-Paper display on a Raspberry Pi. It provides at-a-glance stats for your Pi-hole server in a low-power format.
 
-GPIO Button Control: Four buttons allow for manual refresh and direct screen selection.
+## **Features**
 
-Grayscale Splash Screen: Displays a 4-color grayscale logo on startup.
+* **Three Screens:** Cycles through Pi-hole stats, system vitals, and component versions.  
+* **GPIO Button Control:** Four buttons allow for manual refresh and screen selection.  
+* **Grayscale Splash Screen:** A 4-color grayscale splash screen on startup.  
+* **Modern API:** Uses the new Pi-hole v6 API for data fetching.  
+* **Configurable Logging:** Command-line options for log level and file output.  
+* **Clean Project Structure:** Managed with uv for easy dependency and environment handling.
 
-Modern API: Uses the new Pi-hole v6 API for all data fetching.
+## **Hardware Requirements**
 
-Secure Configuration: Credentials are kept out of the code in a .env file.
+* Raspberry Pi (any model with GPIO pins)  
+* Waveshare 2.7inch e-Paper HAT (V2)  
+* An SD card with Raspberry Pi OS
 
-CLI Tool: Can be installed and run as a system command (padd-eink).
+## **Software Setup with uv**
 
-Customizable Logging: Control log level and output file via command-line options.
+This guide assumes you have a fresh installation of Raspberry Pi OS with SSH enabled or are working from the desktop.
 
-HTTPS Support: Optional secure connection to the Pi-hole API.
+### **1\. Install uv**
 
-Hardware Requirements
-Raspberry Pi (any model with GPIO pins)
+uv is an extremely fast Python package installer and resolver. Install it on your Raspberry Pi with this command:
 
-Waveshare 2.7inch e-Paper HAT (V2)
+curl \-LsSf \[https://astral.sh/uv/install.sh\](https://astral.sh/uv/install.sh) | sh
 
-An installed and running Pi-hole instance (v6 or newer)
+After installation, you may need to source your profile file for uv to be in your PATH:
 
-Project Structure
-padd-eink/
-├── src/
-│   └── padd_eink/
-│       └── __main__.py       # The main application script
-├── fonts/
-│   └── DejaVuSans.ttf        # The font for the display
-├── images/
-│   ├── Pihole-eInk.jpg     # Grayscale splash screen logo
-│   └── black-hole.png      # 1-bit B&W header logo
-├── .env                        # Your local configuration (create this)
-├── .gitignore
-├── pyproject.toml              # Project definition and dependencies
-└── README.md                   # This file
+source \~/.profile  
+\# or source \~/.bashrc
 
-Setup and Installation
-1. Install uv
-If you don't have uv, install it first. It's a very fast Python package installer and resolver.
+### **2\. Set Up the Project**
 
-curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh
-source $HOME/.cargo/env
+First, create the project directory and navigate into it.
 
-2. Clone or Create the Project
-Clone this repository or create the directory structure and files as shown above.
+mkdir \~/padd-eink-display  
+cd \~/padd-eink-display
 
-3. Prepare Environment and Assets
-Create .env file: In the project's root directory (padd-eink/), create a file named .env and add your Pi-hole's details:
+Next, create the necessary subdirectories for the source code, fonts, and images.
 
-PIHOLE_IP="192.18.1.10"
-API_TOKEN="YOUR_LONG_API_TOKEN_HERE"
+mkdir \-p src/padd\_eink fonts images
 
-Add Fonts and Logos:
+Now, place the project files (pyproject.toml, README.md, .gitignore, and the main script) into this directory structure. The final layout should look like this:
 
-Create a fonts directory in the project root and place your font file (e.g., DejaVuSans.ttf) inside it.
+```
+padd-eink-display/  
+├── .env  
+├── .gitignore  
+├── fonts/  
+│   ├── DejaVuSans.ttf  
+│   └── DejaVuSans-Bold.ttf  
+├── images/  
+│   ├── Pihole-eInk.jpg  
+│   └── black-hole.png  
+├── pyproject.toml  
+├── README.md  
+└── src/  
+    └── padd\_eink/  
+        └── __main__.py
+```
 
-Create an images directory in the project root and place your Pihole-eInk.jpg (grayscale) and black-hole.png (1-bit B&W) images inside it.
+### **3\. Create a Virtual Environment and Install Dependencies**
 
-4. Create a Virtual Environment and Install Dependencies
-From the project's root directory, use uv to create a virtual environment and install the required packages.
+Use uv to create a virtual environment for the project.
 
-# Create a virtual environment named .venv
 uv venv
 
-# Activate the virtual environment
-source .venv/bin/activate
+This will create a .venv directory. Now, use uv to install all the project dependencies listed in pyproject.toml into this environment.
 
-# Install the project and its dependencies in editable mode
-uv pip install -e .
+uv sync
 
-(Note: You may also need to install the Waveshare libraries manually if they are not available on PyPI. Follow the manufacturer's instructions.)
+### **4\. Configure Your Pi-hole Credentials**
 
-Usage
-Once installed, you can run the display from anywhere on your system (as long as the virtual environment is active) using the padd-eink command.
+Create a .env file in the root of the padd-eink-display directory:
 
-Basic Usage (Defaults to INFO logging, HTTP connection):
+nano .env
 
-padd-eink
+Add your Pi-hole's IP address and API token to this file:
 
-Command-Line Options:
+\# Your Pi-hole's IP address  
+PIHOLE\_IP="192.168.1.10"
 
---level or -l: Set the logging level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL.
+\# Your Pi-hole API Token (found in Settings \-\> API)  
+API\_TOKEN="YOUR\_LONG\_API\_TOKEN\_HERE"
 
---logfile or -f: Specify a file to write logs to.
+Save the file by pressing Ctrl+X, then Y, then Enter.
 
---secure or -s: Use HTTPS to connect to the Pi-hole API.
+### **5\. Add Fonts and Images**
 
-Examples:
+* **Fonts:** Copy the DejaVuSans.ttf and DejaVuSans-Bold.ttf files into the fonts directory. You can usually find these on your Raspberry Pi at /usr/share/fonts/truetype/dejavu/.  
+* **Images:** Place your Pihole-eInk.jpg (for the splash screen) and black-hole.png (for the header) into the images directory.
 
-# Run with DEBUG logging
-padd-eink --level DEBUG
+## **Running the Application**
 
-# Run and save logs to a file
-padd-eink --logfile /var/log/padd_display.log
+To run the display, use uv run. This command executes a command within the project's virtual environment.
 
-# Connect to Pi-hole using HTTPS
-padd-eink --secure
+uv run python \-m padd\_eink
 
-# Combine options
-padd-eink -l DEBUG -f output.log -s
+The display will initialize, show the splash screen for 10 seconds, and then begin cycling through the data screens.
 
-Publishing to PyPI (Optional)
-Install Build Tools:
+### **Command-Line Options**
 
-uv pip install build twine
+You can customize the application's behavior with the following options:
 
-Build the Package:
+* \-l LEVEL, \--level LEVEL: Set the logging level (DEBUG, INFO, WARNING, ERROR). Defaults to INFO.  
+* \-f LOGFILE, \--logfile LOGFILE: Write logs to a specific file.  
+* \-s, \--secure: Connect to Pi-hole using HTTPS instead of HTTP.  
+* \-t, \--traceback: Force enable detailed error tracebacks for all log levels.
 
-python -m build
+**Example (running with DEBUG logging to a file):**
 
-This will create a dist/ directory with the build artifacts.
-
-Upload to PyPI:
-You'll need an account on PyPI.
-
-twine upload dist/*
-
+uv run python \-m padd\_eink \--level DEBUG \--logfile display.log  
