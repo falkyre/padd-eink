@@ -225,7 +225,7 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     blocking_label_width = blocking_label_bbox[2] - blocking_label_bbox[0]
     
     # Draw the rest of the prefix in regular font
-    prefix_remainder = f" {int(gravity_size):,} Piholed: "
+    prefix_remainder = f" {int(gravity_size):,} Piholed:"
     draw.text((10 + blocking_label_width, y), prefix_remainder, font=font_small, fill=BLACK)
 
     # Calculate total width of the full prefix to position the bar
@@ -255,8 +255,8 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     text_width = text_bbox[2] - text_bbox[0]
 
     if bar_width > 0:
-        # Shift left by 5 pixels from the centered position
-        draw.text((bar_x + (bar_width - text_width) // 2 - 5, y), bar_text, font=font_small, fill=BLACK)
+        # Shift left by 20 pixels from the centered position
+        draw.text((bar_x + (bar_width - text_width) // 2 - 20, y), bar_text, font=font_small, fill=BLACK)
     
     y += FONT_SIZE_SMALL + 10 # Update Y position for the next section
 
@@ -266,7 +266,9 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
         "Latest:": data.get('recent_blocked', 'N/A'),
         "Top Ad:": data.get('top_blocked', 'N/A'),
         "Top Dmn:": data.get('top_domain', 'N/A'),
-        "Top Clnt:": f"{data.get('top_client', 'N/A')} [Tot Clnts: {active_clients}]"
+        #"Top Clnt:": f"{data.get('top_client', 'N/A')} [Tot Clnts: {active_clients}]"
+        "Top Clnt:": data.get('top_client', 'N/A'),
+        "Clients:" : f"{data.get('active_clients')}"
     }
 
     for label, value in top_stats.items():

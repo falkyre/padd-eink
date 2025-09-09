@@ -24,7 +24,10 @@ classifiers = [
     "Topic :: System :: Monitoring",
     "Topic :: Utilities",
 ]
-keywords = ["pihole", "e-ink", "epaper", "raspberrypi", "monitoring", "padd"]dependencies = [
+
+keywords = ["pihole", "e-ink", "epaper", "raspberrypi", "monitoring", "padd"]
+
+dependencies = [
     "pihole6api",
     "python-dotenv",
     "Pillow",
