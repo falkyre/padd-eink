@@ -9,11 +9,12 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # --- Library Imports ---
-from gpiozero import Button 
+from gpiozero import Button
 from dotenv import load_dotenv
 from pihole6api import PiHole6Client
 from richcolorlog import setup_logging
 import epaper
+import qrcode
 
 # --- Configuration ---
 # Load environment variables from .env file in the project's root directory
@@ -39,6 +40,7 @@ KEY3_PIN = 13
 KEY4_PIN = 19
 # Debounce time for gpiozero is in seconds
 BUTTON_DEBOUNCE_S = 0.3
+BUTTON_HOLD_S = 5 # Time in seconds to hold for QR code
 
 # --- Paths (Updated to use subdirectories) ---
 LOGO_PATH = os.path.join(project_dir, 'images', 'Pihole-eInk.jpg')
@@ -62,6 +64,7 @@ padd_data = {}
 last_data_refresh_time = 0
 current_screen_index = 0
 force_redraw = True
+qrcode_mode_active = False # New state for QR code screen
 
 # --- Helper Functions ---
 def format_uptime(seconds):
@@ -190,6 +193,42 @@ def draw_header(draw, width, header_logo_img):
     draw.line([(0, line_y), (width, line_y)], fill=BLACK, width=1)
     return line_y
 
+def draw_qrcode_screen(draw, width, height, url):
+    """Generates and draws a QR code with a title and instructions."""
+    try:
+        font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
+        font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
+    except IOError:
+        font_regular = ImageFont.load_default()
+        font_bold = ImageFont.load_default()
+
+    # --- 1. Draw Title (above QR code) ---
+    title_text = "Pi-Hole Admin"
+    title_bbox = draw.textbbox((0, 0), title_text, font=font_bold)
+    title_width = title_bbox[2] - title_bbox[0]
+    title_height = title_bbox[3] - title_bbox[1]
+    title_y = 10  # Position near the top
+    draw.text(((width - title_width) / 2, title_y), title_text, font=font_bold, fill=BLACK)
+
+    # --- 2. Generate and Draw QR Code ---
+    qr = qrcode.QRCode(version=1, box_size=4, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert('1')
+
+    qr_pos_x = (width - qr_img.size[0]) // 2
+    # Position QR code vertically after the title, leaving a small gap
+    qr_pos_y = title_y + title_height + 10
+    draw.bitmap((qr_pos_x, qr_pos_y), qr_img, fill=BLACK)
+
+    # --- 3. Draw Instruction Text (below QR code) ---
+    instruction_text = "Hold key 1 button to close"
+    inst_bbox = draw.textbbox((0, 0), instruction_text, font=font_regular)
+    inst_width = inst_bbox[2] - inst_bbox[0]
+    # Position instructions after the QR code
+    inst_y = qr_pos_y + qr_img.size[1] + 10
+    draw.text(((width - inst_width) / 2, inst_y), instruction_text, font=font_regular, fill=BLACK)
+
 def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     """Draws the main Pi-hole statistics screen."""
     try:
@@ -214,7 +253,6 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     total = queries_data.get('total', 0)
     percent = queries_data.get('percent_blocked', 0.0)
     gravity_size = data.get('gravity_size', 0)
-    active_clients = data.get('active_clients', 0)
     
     # --- Line 1: Blocking Info ---
     blocking_label = "Blocking:"
@@ -225,7 +263,7 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     draw.text((right_align_x - value_width, y), blocking_value, font=font_small, fill=BLACK)
     y += line_height_small
 
-    # --- Line 2: Piholed Percentage Bar and Text ---
+    # --- Line 2: Piholed Percentage Bar and Text (New Layout) ---
     piholed_label = "Piholed:"
     draw.text((10, y), piholed_label, font=font_small_bold, fill=BLACK)
 
@@ -405,23 +443,44 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
 
 
 # --- GPIO Button Handlers (gpiozero style) ---
-def handle_button_press(button_pin):
-    """Generic handler for all button presses."""
-    global current_screen_index, force_redraw, last_data_refresh_time
-    logger.info(f"Button press detected on GPIO {button_pin}")
+def handle_short_press(button_pin):
+    """Handles short presses for screen navigation."""
+    global current_screen_index, force_redraw, qrcode_mode_active
+    
+    # Ignore short presses if QR code is active
+    if qrcode_mode_active:
+        return
 
-    if button_pin == KEY1_PIN:      # Refresh
-        last_data_refresh_time = 0
-    elif button_pin == KEY2_PIN:    # Pi-hole Stats
+    logger.info(f"Short press detected on GPIO {button_pin}")
+    if button_pin == KEY2_PIN:
         current_screen_index = 0
-    elif button_pin == KEY3_PIN:    # System Stats
+    elif button_pin == KEY3_PIN:
         current_screen_index = 1
-    elif button_pin == KEY4_PIN:    # Version Stats
+    elif button_pin == KEY4_PIN:
         current_screen_index = 2
     force_redraw = True
 
+def handle_refresh_press():
+    """Handles short press for the refresh button."""
+    global last_data_refresh_time, force_redraw, qrcode_mode_active
+    
+    # Ignore refresh if QR code is active
+    if qrcode_mode_active:
+        return
+        
+    logger.info("Short press detected on refresh button.")
+    last_data_refresh_time = 0
+    force_redraw = True
+
+def handle_qrcode_toggle():
+    """Handles long press to show/hide the QR code screen."""
+    global qrcode_mode_active, force_redraw
+    logger.info("Long press detected, toggling QR code mode.")
+    qrcode_mode_active = not qrcode_mode_active
+    force_redraw = True
+
 def main():
-    global logger, pihole, current_screen_index, force_redraw
+    global logger, pihole, current_screen_index, force_redraw, qrcode_mode_active
 
     parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
     parser.add_argument('-l', '--level', type=str.upper, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help='Set the logging level (default: INFO)')
@@ -440,15 +499,13 @@ def main():
         level=log_level,
         rich_tracebacks=show_tracebacks
     )
-
-    logger.info(f"Show tracebacks is {show_tracebacks}")
-
     
     if not PIHOLE_IP or not API_TOKEN:
         logger.error("PIHOLE_IP and/or API_TOKEN not found in .env file.")
         sys.exit(1)
 
     protocol = "https" if args.secure else "http"
+    pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
     pihole = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
     logger.info(f"Attempting to connect to Pi-hole at {protocol}://{PIHOLE_IP}")
     logger.info("Starting PADD e-Ink Display...")
@@ -485,18 +542,21 @@ def main():
         epd.init()
         epd.Clear()
 
-        # Initialize buttons using gpiozero
+        # Initialize buttons using gpiozero, separating the top button's events
         logger.info("Initializing GPIO Buttons with gpiozero...")
-        button1 = Button(KEY1_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
+        button1 = Button(KEY1_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S, hold_time=BUTTON_HOLD_S)
         button2 = Button(KEY2_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
         button3 = Button(KEY3_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
         button4 = Button(KEY4_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
 
-        # Assign a function to the when_pressed event of each button
-        button1.when_pressed = lambda: handle_button_press(KEY1_PIN)
-        button2.when_pressed = lambda: handle_button_press(KEY2_PIN)
-        button3.when_pressed = lambda: handle_button_press(KEY3_PIN)
-        button4.when_pressed = lambda: handle_button_press(KEY4_PIN)
+        # Assign handlers for short press (refresh) and long press (QR code)
+        button1.when_pressed = handle_refresh_press
+        button1.when_held = handle_qrcode_toggle
+
+        # Assign handlers for other buttons
+        button2.when_pressed = lambda: handle_short_press(KEY2_PIN)
+        button3.when_pressed = lambda: handle_short_press(KEY3_PIN)
+        button4.when_pressed = lambda: handle_short_press(KEY4_PIN)
         logger.info("GPIO Buttons Initialized.")
         
         screens = [draw_pihole_stats_screen, draw_system_info_screen, draw_version_screen]
@@ -504,20 +564,24 @@ def main():
         last_screen_rotate_time = time.time()
 
         while True:
-            if time.time() - last_screen_rotate_time > SCREEN_AUTO_ROTATE_INTERVAL_SECONDS:
+            # Only auto-rotate if the QR code screen is not active
+            if not qrcode_mode_active and time.time() - last_screen_rotate_time > SCREEN_AUTO_ROTATE_INTERVAL_SECONDS:
                 current_screen_index = (current_screen_index + 1) % num_screens
                 force_redraw = True
                 last_screen_rotate_time = time.time()
 
             if force_redraw:
-                refresh_data()
-                
-                logger.info(f"Drawing screen {current_screen_index + 1}/{num_screens}...")
                 image = Image.new('1', (width, height), WHITE)
                 draw = ImageDraw.Draw(image)
-                header_bottom_y = draw_header(draw, width, header_logo_image)
-                
-                screens[current_screen_index](draw, width, height, padd_data, header_bottom_y)
+
+                if qrcode_mode_active:
+                    logger.info("Drawing QR code screen...")
+                    draw_qrcode_screen(draw, width, height, pihole_url)
+                else:
+                    refresh_data()
+                    logger.info(f"Drawing screen {current_screen_index + 1}/{num_screens}...")
+                    header_bottom_y = draw_header(draw, width, header_logo_image)
+                    screens[current_screen_index](draw, width, height, padd_data, header_bottom_y)
                 
                 epd.display(epd.getbuffer(image))
                 logger.info("EPD display updated.")

@@ -35,6 +35,7 @@ dependencies = [
     "lgpio",
     "richcolorlog",
     "waveshare-epaper",
+    "qrcode",
 ]
 
 [project.urls]
