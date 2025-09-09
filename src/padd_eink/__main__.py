@@ -207,7 +207,7 @@ def draw_qrcode_screen(draw, width, height, url):
     title_bbox = draw.textbbox((0, 0), title_text, font=font_bold)
     title_width = title_bbox[2] - title_bbox[0]
     title_height = title_bbox[3] - title_bbox[1]
-    title_y = 10  # Position near the top
+    title_y = 4  # Position near the top
     draw.text(((width - title_width) / 2, title_y), title_text, font=font_bold, fill=BLACK)
 
     # --- 2. Generate and Draw QR Code ---
@@ -226,7 +226,7 @@ def draw_qrcode_screen(draw, width, height, url):
     inst_bbox = draw.textbbox((0, 0), instruction_text, font=font_regular)
     inst_width = inst_bbox[2] - inst_bbox[0]
     # Position instructions after the QR code
-    inst_y = qr_pos_y + qr_img.size[1] + 10
+    inst_y = qr_pos_y + qr_img.size[1] + 6
     draw.text(((width - inst_width) / 2, inst_y), instruction_text, font=font_regular, fill=BLACK)
 
 def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
@@ -500,6 +500,8 @@ def main():
         rich_tracebacks=show_tracebacks
     )
     
+    logger.info(f"Show tracebacks[{show_tracebacks}]")
+
     if not PIHOLE_IP or not API_TOKEN:
         logger.error("PIHOLE_IP and/or API_TOKEN not found in .env file.")
         sys.exit(1)
