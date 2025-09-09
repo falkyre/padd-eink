@@ -202,6 +202,7 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     
     y = header_bottom_y + 10
     right_align_x = width - 10
+    line_height_small = FONT_SIZE_SMALL + 4
 
     if not data:
         draw.text((10, y), "No Pi-hole data available.", font=font_small, fill=BLACK)
@@ -215,60 +216,55 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     gravity_size = data.get('gravity_size', 0)
     active_clients = data.get('active_clients', 0)
     
-    # --- Line 1: Blocking Info and Percentage Bar ---
-    # Draw "Blocking:" in bold
+    # --- Line 1: Blocking Info ---
     blocking_label = "Blocking:"
+    blocking_value = f"{int(gravity_size):,}"
     draw.text((10, y), blocking_label, font=font_small_bold, fill=BLACK)
-    
-    # Calculate width of bold label to position the next part
-    blocking_label_bbox = draw.textbbox((0,0), blocking_label, font=font_small_bold)
-    blocking_label_width = blocking_label_bbox[2] - blocking_label_bbox[0]
-    
-    # Draw the rest of the prefix in regular font
-    prefix_remainder = f" {int(gravity_size):,} Piholed:"
-    draw.text((10 + blocking_label_width, y), prefix_remainder, font=font_small, fill=BLACK)
+    value_bbox = draw.textbbox((0,0), blocking_value, font=font_small)
+    value_width = value_bbox[2] - value_bbox[0]
+    draw.text((right_align_x - value_width, y), blocking_value, font=font_small, fill=BLACK)
+    y += line_height_small
 
-    # Calculate total width of the full prefix to position the bar
-    prefix_remainder_bbox = draw.textbbox((0,0), prefix_remainder, font=font_small)
-    prefix_total_width = blocking_label_width + (prefix_remainder_bbox[2] - prefix_remainder_bbox[0])
+    # --- Line 2: Piholed Percentage Bar and Text ---
+    piholed_label = "Piholed:"
+    draw.text((10, y), piholed_label, font=font_small_bold, fill=BLACK)
 
-    # Position the bar immediately after the text
+    piholed_label_bbox = draw.textbbox((0,0), piholed_label, font=font_small_bold)
+    piholed_label_width = piholed_label_bbox[2] - piholed_label_bbox[0]
+    
+    # Position the text immediately after the label
+    bar_text = f" {int(blocked):,} of {int(total):,} ({percent:.1f}%)"
+    draw.text((10 + piholed_label_width, y), bar_text, font=font_small, fill=BLACK)
+    
+    bar_text_bbox = draw.textbbox((0,0), bar_text, font=font_small)
+    bar_text_width = bar_text_bbox[2] - bar_text_bbox[0]
+
     bar_height = 15
-    bar_x = 10 + prefix_total_width
-    bar_y = y - 2 # Vertically align bar with text
+    bar_y = y - 2
     
-    bar_width = width - bar_x - 10
-
+    # Bar starts after the label and the text
+    bar_x = 10 + piholed_label_width + bar_text_width + 5 # 5px gap
+    
+    # Bar width is the remaining space
+    bar_width = width - bar_x - 10 # 10px right margin
+    
     if bar_width > 10:
         draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], outline=BLACK, fill=WHITE)
         fill_width = int(bar_width * (percent / 100.0))
         if fill_width > 0:
             draw.rectangle([bar_x, bar_y, bar_x + fill_width, bar_y + bar_height], fill=BLACK)
     else:
-        logger.warning("Not enough horizontal space to draw the percentage bar.")
-        bar_width = 0
+        logger.warning("Not enough horizontal space for percentage bar.")
 
-    # --- Line 2: Text below the bar (shifted left) ---
-    y = bar_y + bar_height + 2
-    bar_text = f"{int(blocked):,} of {int(total):,} ({percent:.1f}%)"
-    text_bbox = draw.textbbox((0,0), bar_text, font=font_small)
-    text_width = text_bbox[2] - text_bbox[0]
-
-    if bar_width > 0:
-        # Shift left by 20 pixels from the centered position
-        draw.text((bar_x + (bar_width - text_width) // 2 - 20, y), bar_text, font=font_small, fill=BLACK)
+    y += bar_height # Move y down for next section
     
-    y += FONT_SIZE_SMALL + 10 # Update Y position for the next section
-
     # --- Draw Top Stats with new formatting ---
-    line_height_small = FONT_SIZE_SMALL + 4
     top_stats = {
         "Latest:": data.get('recent_blocked', 'N/A'),
         "Top Ad:": data.get('top_blocked', 'N/A'),
-        "Top Dmn:": data.get('top_domain', 'N/A'),
-        #"Top Clnt:": f"{data.get('top_client', 'N/A')} [Tot Clnts: {active_clients}]"
-        "Top Clnt:": data.get('top_client', 'N/A'),
-        "Clients:" : f"{data.get('active_clients')}"
+        "Top Domain:": data.get('top_domain', 'N/A'),
+        "Top Client:": data.get('top_client', 'N/A'),
+        "Clients:": f"{data.get('active_clients')}"
     }
 
     for label, value in top_stats.items():
@@ -281,7 +277,6 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
         draw.text((right_align_x - value_width, y), value, font=font_small, fill=BLACK)
         
         y += line_height_small
-
 
 def draw_system_info_screen(draw, width, height, data, header_bottom_y):
     """Draws the Raspberry Pi system info screen with bold labels and right-aligned values."""
