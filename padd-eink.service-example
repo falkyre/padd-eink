@@ -1,0 +1,15 @@
+[Unit]
+Description=PADD e-Ink Display for Pi-hole
+Wants=pihole-FTL.service
+After=network.target pihole-FTL.service
+
+[Service]
+User=<your user>
+Group=<your group>
+WorkingDirectory=/path/to/your/padd-eink
+ExecStart=/path/to/your/uv run padd-eink
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
