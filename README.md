@@ -17,15 +17,24 @@ An e-ink display for Pi-hole v6 statistics, designed for a Waveshare 2.7-inch e-
 * Waveshare 2.7inch e-Paper HAT (V2)  
 * An SD card with Raspberry Pi OS
 
+## **User Requirements**
+If you don't wish to run this software as root (in order to access the i2c, spi and gpio memory), add your user to the following groups using 
+
+```sudo usermod -aG <groupname> <username>```
+
+gpio, i2c and spi
+
+Once you add your user to these groups, log out of your shell and log back in so your user has access.
+
 ## **Software Setup with uv**
 
-This guide assumes you have a fresh installation of Raspberry Pi OS with SSH enabled or are working from the desktop.
+This guide assumes you have a fresh installation of Raspberry Pi OS with SSH enabled or are working from the desktop.  I am trying uv, you don't need to use uv but a virtual environment is a must.
 
 ### **1\. Install uv**
 
 uv is an extremely fast Python package installer and resolver. Install it on your Raspberry Pi with this command:
 
-curl \-LsSf \[https://astral.sh/uv/install.sh\](https://astral.sh/uv/install.sh) | sh
+curl \-LsSf https://astral.sh/uv/install.sh | sh
 
 After installation, you may need to source your profile file for uv to be in your PATH:
 
@@ -34,10 +43,12 @@ source \~/.profile
 
 ### **2\. Set Up the Project**
 
+If you cloned this repo, skip this step and move to step 3.
+
 First, create the project directory and navigate into it.
 
-mkdir \~/padd-eink-display  
-cd \~/padd-eink-display
+mkdir \~/padd-eink
+cd \~/padd-eink
 
 Next, create the necessary subdirectories for the source code, fonts, and images.
 
@@ -46,7 +57,7 @@ mkdir \-p src/padd\_eink fonts images
 Now, place the project files (pyproject.toml, README.md, .gitignore, and the main script) into this directory structure. The final layout should look like this:
 
 ```
-padd-eink-display/  
+padd-eink/  
 ├── .env  
 ├── .gitignore  
 ├── fonts/  
@@ -58,7 +69,7 @@ padd-eink-display/
 ├── pyproject.toml  
 ├── README.md  
 └── src/  
-    └── padd\_eink/  
+    └── padd_eink/  
         └── __main__.py
 ```
 
@@ -109,7 +120,18 @@ You can customize the application's behavior with the following options:
 * \-f LOGFILE, \--logfile LOGFILE: Write logs to a specific file.  
 * \-s, \--secure: Connect to Pi-hole using HTTPS instead of HTTP.  
 * \-t, \--traceback: Force enable detailed error tracebacks for all log levels.
+* \-T, \--TUI: Use a text user interface instead of the eInk.
 
 **Example (running with DEBUG logging to a file):**
 
 uv run python \-m padd\_eink \--level DEBUG \--logfile display.log  
+
+** Still figuring out the uv run stuff **
+
+If the above doesn't work, you can run the python script in the following ways as well:
+
+uv run python src/padd_eink/__main__.py
+
+or
+
+.venv/bin/python src/padd_eink/__main__.py
