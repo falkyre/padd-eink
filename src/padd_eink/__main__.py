@@ -158,7 +158,7 @@ class PiHoleStats(Static):
         lines = [
             f"[bold]Blocking:[/bold]   {data.get('gravity_size', 0):,}",
             f"[bold]Piholed:[/bold]    {ascii_bar} {percent_blocked:.1f}%",
-            f"[bold]Queries:[/bold]    {queries.get('blocked', 0):,} of {queries.get('total', 0):,}",
+            f"[bold]Queries:[/bold]    {queries.get('blocked', 0):,} out of {queries.get('total', 0):,}",
             f"[bold]Latest:[/bold]     {data.get('recent_blocked', 'N/A')}",
             f"[bold]Top Ad:[/bold]     {data.get('top_blocked', 'N/A')}",
             f"[bold]Top Domain:[/bold] {data.get('top_domain', 'N/A')}",
@@ -182,11 +182,36 @@ class SystemStats(Static):
 
         data = padd_data
         system = data.get('system', {})
+
+        # Generate the ASCII bar for CPU
+        cpu_load = system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
+        cpu_bar = generate_ascii_bar(cpu_load, total_width=40)
+
+        # Generate the ASCII bar for Memory
+        mem_load = system.get('memory', {}).get('ram', {}).get('%used', 0.0)
+        mem_bar = generate_ascii_bar(mem_load, total_width=40)
+
+        # CPU temperature colors
+        # Get the CPU temperature value safely
+        cpu_temp = data.get('sensors', {}).get('cpu_temp', 0.0)
+
+        # Determine the color based on the temperature
+        # Add emoji for rich rendering
+        if cpu_temp > 80:
+            color = "red"
+            cpu_emoji = ":ok-emoji::cool-emoji"
+        elif cpu_temp >= 60:
+            color = "yellow"
+            cpu_emoji = ":ok-emoji::cool-emoji"
+        else:
+            color = "green"
+            cpu_emoji = ":ok-emoji::cool-emoji"
+
         lines = [
             f"[bold]Host:[/bold]       {data.get('node_name', 'N/A')} ({data.get('iface', {}).get('v4', {}).get('addr', 'N/A')})",
-            f"[bold]CPU Load:[/bold]   {system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]:.1f}%",
-            f"[bold]Memory:[/bold]     {system.get('memory', {}).get('ram', {}).get('%used', 0.0):.1f}%",
-            f"[bold]CPU Temp:[/bold]   {data.get('sensors', {}).get('cpu_temp', 0.0):.1f}°C",
+            f"[bold]CPU Load:[/bold]   {cpu_bar} {cpu_load:.1f}%",
+            f"[bold]Memory:[/bold]     {mem_bar} {mem_load:.1f}%",
+            f"[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}] {cpu_emoji}",
             f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}"
         ]
         self.update("\n".join(lines))
@@ -219,7 +244,7 @@ class PiHoleVersions(Container):
         checkmark = "\u2713"
         lines = []
 
-        components = {"Pi-hole": "core", "Web UI": "web", "FTL": "ftl"}
+        components = {"Pi-hole": "core", " Web UI": "web", "    FTL": "ftl"}
         for name, key in components.items():
             comp_data = version_data.get(key)
             if not comp_data:
@@ -248,6 +273,7 @@ class PiHoleVersions(Container):
 # --- Textual TUI Application (Main App Class) ---
 class PADD_TUI(App):
     """A Textual TUI for Pi-hole statistics."""
+    CSS_PATH = "padd_eink.tcss"
 
     BINDINGS = [
         ("r", "refresh", "Refresh Data"),
@@ -267,7 +293,7 @@ class PADD_TUI(App):
         with VerticalScroll(id="main-container"):
             yield PiHoleStats("Loading...")
             yield SystemStats("Loading...")
-            yield PiHoleVersions() # Container doesn't need initial content
+            yield PiHoleVersions(id="sidebar") # Container doesn't need initial content
         yield Footer()
 
     def on_mount(self) -> None:
@@ -366,7 +392,7 @@ def draw_qrcode_screen(draw, width, height, url):
     title_text = "Pi-Hole Admin"
     title_bbox = draw.textbbox((0, 0), title_text, font=font_bold)
     title_width, title_height = title_bbox[2], title_bbox[3]
-    title_y = 4
+    title_y = 3
     draw.text(((width - title_width) / 2, title_y), title_text, font=font_bold, fill=BLACK)
 
     qr = qrcode.QRCode(version=1, box_size=4, border=2)
@@ -380,7 +406,7 @@ def draw_qrcode_screen(draw, width, height, url):
     instruction_text = "Hold key 1 button to close"
     inst_bbox = draw.textbbox((0, 0), instruction_text, font=font_regular)
     inst_width = inst_bbox[2]
-    inst_y = qr_pos_y + qr_img.size[1] + 5
+    inst_y = qr_pos_y + qr_img.size[1] + 4
     draw.text(((width - inst_width) / 2, inst_y), instruction_text, font=font_regular, fill=BLACK)
 
 def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
@@ -451,12 +477,20 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
     y += bar_height # Move y down for next section
 
     # --- Draw Top Stats with new formatting ---
+   # top_stats = {
+   #     "Latest:": data.get('recent_blocked', 'N/A'),
+   #     "Top Ad:": data.get('top_blocked', 'N/A'),
+   #     "Top Domain:": data.get('top_domain', 'N/A'),
+   #     "Top Client:": data.get('top_client', 'N/A'),
+   #     "Clients:": f"{data.get('active_clients')}"
+   # }
+
     top_stats = {
-        "Latest:": data.get('recent_blocked', 'N/A'),
-        "Top Ad:": data.get('top_blocked', 'N/A'),
-        "Top Domain:": data.get('top_domain', 'N/A'),
-        "Top Client:": data.get('top_client', 'N/A'),
-        "Clients:": f"{data.get('active_clients')}"
+        "Latest:": "N/A" if (latest := data.get('recent_blocked')) is None else latest,
+        "Top Ad:": "N/A" if (ad := data.get('top_blocked')) is None else ad,
+        "Top Domain:": "N/A" if (domain := data.get('top_domain')) is None else domain,
+        "Top Client:": "N/A" if (client := data.get('top_client')) is None else client,
+        "Clients:": "N/A" if (clients := data.get('active_clients')) is None else f"{clients}"
     }
 
     for label, value in top_stats.items():
