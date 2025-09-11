@@ -15,7 +15,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Topic :: System :: Monitoring",
-    "Topic :: Utilities",
+    "Topic :: Terminals",
 ]
 
 keywords = ["pihole", "e-ink", "epaper", "raspberrypi", "monitoring", "padd"]
@@ -29,6 +29,7 @@ dependencies = [
     "richcolorlog",
     "waveshare-epaper",
     "qrcode",
+    "textual",
 ]
 
 [project.urls]

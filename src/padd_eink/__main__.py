@@ -15,6 +15,11 @@ from pihole6api import PiHole6Client
 from richcolorlog import setup_logging
 import epaper
 import qrcode
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer, Static, ProgressBar
+from textual.containers import VerticalScroll, Container
+from textual import work
+
 
 # --- Configuration ---
 # Load environment variables from .env file in the project's root directory
@@ -49,7 +54,6 @@ HEADER_LOGO_PATH = os.path.join(project_dir, 'images', 'black-hole.png')
 FONT_PATH = os.path.join(project_dir, 'fonts', 'DejaVuSans.ttf')
 FONT_BOLD_PATH = os.path.join(project_dir, 'fonts', 'DejaVuSans-Bold.ttf')
 
-
 # --- Constants ---
 WHITE = 255
 BLACK = 0
@@ -58,15 +62,14 @@ FONT_SIZE_HEADER_DATE = 14
 FONT_SIZE_BODY = 15
 FONT_SIZE_SMALL = 12
 
-# --- Globals ---
-pihole = None
+# --- Globals for e-Ink Mode ---
 padd_data = {}
 last_data_refresh_time = 0
 current_screen_index = 0
 force_redraw = True
 qrcode_mode_active = False # New state for QR code screen
 
-# --- Helper Functions ---
+# --- Helper Functions (used by both modes) ---
 def format_uptime(seconds):
     """Converts seconds into a human-readable Xd Yh Zm format."""
     try:
@@ -81,38 +84,21 @@ def format_uptime(seconds):
         return "N/A"
 
 def compare_versions(version1, version2):
-    """
-    Compares two version strings numerically.
-    Returns:
-     1 if version1 > version2
-    -1 if version1 < version2
-     0 if version1 == version2
-    """
+    """Compares two version strings numerically."""
     try:
-        # Strip leading 'v' or 'V' and split into components
         v1_clean = version1.lstrip('vV')
         v2_clean = version2.lstrip('vV')
-        
         v1_parts = [int(part) for part in v1_clean.split('.')]
         v2_parts = [int(part) for part in v2_clean.split('.')]
     except (ValueError, AttributeError):
-        # Handle cases where conversion fails (e.g., non-numeric parts)
-        return 0 # Treat as equal if format is invalid
-
-    # Pad the shorter version list with zeros for correct comparison
+        return 0
     max_len = max(len(v1_parts), len(v2_parts))
     v1_parts.extend([0] * (max_len - len(v1_parts)))
     v2_parts.extend([0] * (max_len - len(v2_parts)))
-
-    # Compare part by part
     for i in range(max_len):
-        if v1_parts[i] > v2_parts[i]:
-            return 1
-        if v1_parts[i] < v2_parts[i]:
-            return -1
-
-    return 0 # Versions are equal
-
+        if v1_parts[i] > v2_parts[i]: return 1
+        if v1_parts[i] < v2_parts[i]: return -1
+    return 0
 
 # --- Data Fetching ---
 def refresh_data():
@@ -129,104 +115,272 @@ def refresh_data():
             logger.error(f"Failed to get data from Pi-hole: {e}")
             padd_data = {}
 
-# --- Drawing Functions ---
-def draw_splash_screen(epd, logo_image, width, height):
-    """Displays a centered logo on the screen for the splash screen using 4-gray mode."""
-    logger.info("Displaying 4-gray splash screen...")
-    image = Image.new('L', (width, height), 255) # Grayscale canvas
-    draw = ImageDraw.Draw(image)
+def generate_ascii_bar(percent: float, total_width: int = 50) -> str:
+    """Generates a colored ASCII progress bar string for Rich."""
+    filled_count = int(total_width * (percent / 100))
+    empty_count = total_width - filled_count
+    
+    filled_part = "■" * filled_count
+    empty_part = "□" * empty_count # Using space for empty part
+    
+    # Use Rich markup for background colors
+    bar_filled = f"[bold red]{filled_part}[/bold red]"
+    bar_empty= f"[bold green]{empty_part}[/bold green]"
+   
+    return f"{bar_filled}{bar_empty}"
 
+# --- Textual TUI Widgets ---
+class PiHoleStats(Static):
+    """A widget to display Pi-hole statistics."""
+
+    def on_mount(self) -> None:
+        """Set the border title when the widget is mounted."""
+        self.border_title = "Pi-hole Stats"
+        self.styles.border = ("heavy","white")
+        self.styles.border_title_align = "center"
+
+    def update_content(self, padd_data: dict) -> None:
+        """Formats and updates the widget's content."""
+        if padd_data.get("error"):
+            self.update(f"[bold red]{padd_data['error']}[/]")
+            return
+        if not padd_data:
+            self.update("No Pi-hole data available.")
+            return
+
+        data = padd_data
+        queries = data.get('queries', {})
+        percent_blocked = queries.get('percent_blocked', 0.0)
+        
+        # Generate the ASCII bar
+        ascii_bar = generate_ascii_bar(percent_blocked, total_width=40)
+        
+        lines = [
+            f"[bold]Blocking:[/bold]   {data.get('gravity_size', 0):,}",
+            f"[bold]Piholed:[/bold]    {ascii_bar} {percent_blocked:.1f}%",
+            f"[bold]Queries:[/bold]    {queries.get('blocked', 0):,} of {queries.get('total', 0):,}",
+            f"[bold]Latest:[/bold]     {data.get('recent_blocked', 'N/A')}",
+            f"[bold]Top Ad:[/bold]     {data.get('top_blocked', 'N/A')}",
+            f"[bold]Top Domain:[/bold] {data.get('top_domain', 'N/A')}",
+            f"[bold]Top Client:[/bold] {data.get('top_client', 'N/A')}",
+            f"[bold]Clients:[/bold]    {data.get('active_clients', 0)}"
+        ]
+        self.update("\n".join(lines))
+
+class SystemStats(Static):
+    """A widget to display system statistics."""
+    
+    def on_mount(self) -> None:
+        self.border_title = "System Stats"
+        self.styles.border = ("panel","blue")
+        self.styles.border_title_align = "center"
+        
+    def update_content(self, padd_data: dict) -> None:
+        if not padd_data or padd_data.get("error"):
+            self.update("") # Clear on error
+            return
+
+        data = padd_data
+        system = data.get('system', {})
+        lines = [
+            f"[bold]Host:[/bold]       {data.get('node_name', 'N/A')} ({data.get('iface', {}).get('v4', {}).get('addr', 'N/A')})",
+            f"[bold]CPU Load:[/bold]   {system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]:.1f}%",
+            f"[bold]Memory:[/bold]     {system.get('memory', {}).get('ram', {}).get('%used', 0.0):.1f}%",
+            f"[bold]CPU Temp:[/bold]   {data.get('sensors', {}).get('cpu_temp', 0.0):.1f}°C",
+            f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}"
+        ]
+        self.update("\n".join(lines))
+        
+class PiHoleVersions(Container):
+    """A widget to display component versions and a refresh progress bar."""
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the container."""
+        yield Static("Loading...", id="version-text")
+        yield ProgressBar(total=100, show_eta=False, show_percentage = False, name= "next refresh", id="refresh-progress")
+
+    def on_mount(self) -> None:
+        self.border_title = "Component Versions"
+        self.styles.border = ("round","green")
+        self.styles.border_title_align = "center"
+
+    def update_content(self, padd_data: dict) -> None:
+        version_text_widget = self.query_one("#version-text")
+        if not padd_data or padd_data.get("error"):
+            version_text_widget.update("") # Clear on error
+            return
+
+        version_data = padd_data.get('version')
+        if not version_data:
+            version_text_widget.update("Version data not available.")
+            return
+
+        any_updates = False
+        checkmark = "\u2713"
+        lines = []
+
+        components = {"Pi-hole": "core", "Web UI": "web", "FTL": "ftl"}
+        for name, key in components.items():
+            comp_data = version_data.get(key)
+            if not comp_data:
+                lines.append(f"[bold]{name}:[/bold]\tN/A")
+                continue
+            
+            local = comp_data.get('local', {}).get('version', 'N/A')
+            remote = comp_data.get('remote', {}).get('version', 'N/A')
+            
+            status_str = ""
+            if local != 'N/A' and remote != 'N/A' and compare_versions(remote, local) > 0:
+                any_updates = True
+                status_str = f"{local}[bold red]**[/bold red]"
+            else:
+                status_str = f"{local} {checkmark}" if local != 'N/A' else "N/A"
+            lines.append(f"[bold]{name}:[/bold]\t{status_str}")
+
+        if any_updates:
+            lines.append("\n[bold red]** Update available[/bold red]")
+        else:
+            lines.append(f"\n[bold green]{checkmark} {checkmark} SYSTEM IS HEALTHY {checkmark} {checkmark}[/bold green]")
+
+        version_text_widget.update("\n".join(lines))
+
+
+# --- Textual TUI Application (Main App Class) ---
+class PADD_TUI(App):
+    """A Textual TUI for Pi-hole statistics."""
+
+    BINDINGS = [
+        ("r", "refresh", "Refresh Data"),
+        ("q", "quit", "Quit"),
+    ]
+
+    TUI_REFRESH_INTERVAL = 60
+
+    def __init__(self, pihole_client):
+        super().__init__()
+        self.pihole = pihole_client
+        self.countdown = self.TUI_REFRESH_INTERVAL
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
+        yield Header(name="PADD-eInk Terminal Mode")
+        with VerticalScroll(id="main-container"):
+            yield PiHoleStats("Loading...")
+            yield SystemStats("Loading...")
+            yield PiHoleVersions() # Container doesn't need initial content
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Called when the app is mounted."""
+        self.run_update_worker()
+        self.set_interval(self.TUI_REFRESH_INTERVAL, self.run_update_worker)
+        self.set_interval(1, self.tick_progress_bar) # Timer for progress bar
+
+    def tick_progress_bar(self) -> None:
+        """Updates the progress bar every second."""
+        self.countdown -= 1
+        progress = (self.countdown / self.TUI_REFRESH_INTERVAL) * 100
+        self.query_one(ProgressBar).progress = progress
+
+    def run_update_worker(self) -> None:
+        """Initiates the background data fetching worker and resets countdown."""
+        self.countdown = self.TUI_REFRESH_INTERVAL # Reset countdown on refresh
+        self.update_data()
+
+    @work(thread=True, exclusive=True)
+    def update_data(self) -> None:
+        """Fetches new data and updates the widgets from a background thread."""
+        logger.info("TUI: Refreshing data in worker...")
+        try:
+            padd_data = self.pihole.get_padd_summary(full=True)
+            
+            # Call the update methods on each custom widget
+            self.call_from_thread(self.query_one(PiHoleStats).update_content, padd_data)
+            self.call_from_thread(self.query_one(SystemStats).update_content, padd_data)
+            self.call_from_thread(self.query_one(PiHoleVersions).update_content, padd_data)
+            
+            logger.info("TUI: Display updated by worker.")
+        except Exception as e:
+            error_message = f"Error fetching data: {e}"
+            logger.error(error_message)
+            self.call_from_thread(self.query_one(PiHoleStats).update_content, {"error": error_message})
+
+
+    def action_refresh(self) -> None:
+        """Called when the user presses the 'r' key."""
+        # Update widgets to show a refreshing message
+        self.query_one(PiHoleStats).update("Refreshing...")
+        self.query_one(SystemStats).update("Refreshing...")
+        self.query_one(PiHoleVersions).query_one("#version-text").update("Refreshing...")
+        self.run_update_worker()
+
+    def action_quit(self) -> None:
+        """Called when the user presses the 'q' key."""
+        self.exit()
+
+# --- e-Ink Drawing Functions ---
+def draw_splash_screen(epd, logo_image, width, height):
+    logger.info("Displaying 4-gray splash screen...")
+    image = Image.new('L', (width, height), 255)
+    draw = ImageDraw.Draw(image)
     if logo_image:
-        if logo_image.mode != 'L':
-            logo_image = logo_image.convert('L')
         logo_w, logo_h = logo_image.size
         pos_x = (width - logo_w) // 2
         pos_y = (height - logo_h) // 2
-        image.paste(logo_image, (pos_x, pos_y))
-
-    else:
-        try:
-            font = ImageFont.truetype(FONT_PATH, FONT_SIZE_HEADER_TITLE)
-        except IOError:
-            font = ImageFont.load_default()
-            logger.warning(f"Font not found at {FONT_PATH}, using default.")
-        msg = "PADD e-Ink Display"
-        text_bbox = draw.textbbox((0, 0), msg, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
-        draw.text(((width - text_width) / 2, (height - text_height) / 2), msg, font=font, fill=0)
-    
+        image.paste(logo_image.convert('L'), (pos_x, pos_y))
     epd.display_4Gray(epd.getbuffer_4Gray(image))
 
 def draw_header(draw, width, header_logo_img):
-    """Draws the common header on the image."""
     try:
         font_title = ImageFont.truetype(FONT_PATH, FONT_SIZE_HEADER_TITLE)
         font_date = ImageFont.truetype(FONT_PATH, FONT_SIZE_HEADER_DATE)
     except IOError:
         font_title, font_date = ImageFont.load_default(), ImageFont.load_default()
-        logger.warning(f"Font not found at {FONT_PATH}, using default.")
-
     logo_x, logo_y = 5, 5
     title_x = logo_x
     if header_logo_img:
-        if header_logo_img.mode != '1':
-           header_logo_img  = header_logo_img.convert('1')
-           header_logo_img = ImageOps.invert(header_logo_img)
         header_logo_thumb = header_logo_img.copy()
         header_logo_thumb.thumbnail((40, 40))
-        draw.bitmap((logo_x, logo_y), header_logo_thumb, fill=BLACK)
+        draw.bitmap((logo_x, logo_y), header_logo_thumb.convert('1'), fill=BLACK)
         title_x += header_logo_thumb.width + 10
-
     draw.text((title_x, logo_y), "Pi-hole Stats", font=font_title, fill=BLACK)
     now = datetime.now()
     date_text = now.strftime("%a, %b %d")
     time_text = now.strftime("%H:%M")
     date_y = logo_y + FONT_SIZE_HEADER_TITLE + 3
     draw.text((title_x, date_y), date_text, font=font_date, fill=BLACK)
-    
     time_bbox = draw.textbbox((0,0), time_text, font=font_date)
     time_width = time_bbox[2] - time_bbox[0]
     draw.text((width - time_width - 5, date_y), time_text, font=font_date, fill=BLACK)
-
     line_y = date_y + FONT_SIZE_HEADER_DATE + 5
     draw.line([(0, line_y), (width, line_y)], fill=BLACK, width=1)
     return line_y
 
 def draw_qrcode_screen(draw, width, height, url):
-    """Generates and draws a QR code with a title and instructions."""
     try:
         font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
         font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
     except IOError:
-        font_regular = ImageFont.load_default()
-        font_bold = ImageFont.load_default()
-
-    # --- 1. Draw Title (above QR code) ---
+        font_regular, font_bold = ImageFont.load_default(), ImageFont.load_default()
+    
     title_text = "Pi-Hole Admin"
     title_bbox = draw.textbbox((0, 0), title_text, font=font_bold)
-    title_width = title_bbox[2] - title_bbox[0]
-    title_height = title_bbox[3] - title_bbox[1]
-    title_y = 4  # Position near the top
+    title_width, title_height = title_bbox[2], title_bbox[3]
+    title_y = 4
     draw.text(((width - title_width) / 2, title_y), title_text, font=font_bold, fill=BLACK)
 
-    # --- 2. Generate and Draw QR Code ---
     qr = qrcode.QRCode(version=1, box_size=4, border=2)
     qr.add_data(url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert('1')
-
     qr_pos_x = (width - qr_img.size[0]) // 2
-    # Position QR code vertically after the title, leaving a small gap
     qr_pos_y = title_y + title_height + 10
     draw.bitmap((qr_pos_x, qr_pos_y), qr_img, fill=BLACK)
 
-    # --- 3. Draw Instruction Text (below QR code) ---
     instruction_text = "Hold key 1 button to close"
     inst_bbox = draw.textbbox((0, 0), instruction_text, font=font_regular)
-    inst_width = inst_bbox[2] - inst_bbox[0]
-    # Position instructions after the QR code
-    inst_y = qr_pos_y + qr_img.size[1] + 6
+    inst_width = inst_bbox[2]
+    inst_y = qr_pos_y + qr_img.size[1] + 5
     draw.text(((width - inst_width) / 2, inst_y), instruction_text, font=font_regular, fill=BLACK)
 
 def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
@@ -295,7 +449,7 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
         logger.warning("Not enough horizontal space for percentage bar.")
 
     y += bar_height # Move y down for next section
-    
+
     # --- Draw Top Stats with new formatting ---
     top_stats = {
         "Latest:": data.get('recent_blocked', 'N/A'),
@@ -317,53 +471,31 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
         y += line_height_small
 
 def draw_system_info_screen(draw, width, height, data, header_bottom_y):
-    """Draws the Raspberry Pi system info screen with bold labels and right-aligned values."""
     try:
         font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
         font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
     except IOError:
-        logger.warning(f"Bold or regular font not found, using default.")
-        font_bold = ImageFont.load_default()
-        font_regular = ImageFont.load_default()
-
+        font_bold, font_regular = ImageFont.load_default(), ImageFont.load_default()
     y = header_bottom_y + 10
     line_height = FONT_SIZE_BODY + 7
     right_align_x = width - 10
-
     if not data:
         draw.text((10, y), "No system data available.", font=font_regular, fill=BLACK)
         return
-
-    # --- Prepare data ---
+    
     system_data = data.get('system', {})
-    hostname = data.get('node_name', 'N/A')
-    ip_address = data.get('iface', {}).get('v4', {}).get('addr', 'N/A')
-    cpu_load = system_data.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
-    mem_percent = system_data.get('memory', {}).get('ram', {}).get('%used', 0.0)
-    cpu_temp = data.get('sensors', {}).get('cpu_temp', 0.0)
-    uptime_seconds = system_data.get('uptime', 0)
-
-    # --- Create a dictionary of labels and values to draw ---
     stats_to_draw = {
-        "Host:": f"{hostname} ({ip_address})",
-        "CPU Load:": f"{cpu_load:.1f}%",
-        "Memory:": f"{mem_percent:.1f}%",
-        "CPU Temp:": f"{cpu_temp:.1f}°C",
-        "Uptime:": format_uptime(uptime_seconds)
+        "Host:": f"{data.get('node_name', 'N/A')} ({data.get('iface', {}).get('v4', {}).get('addr', 'N/A')})",
+        "CPU Load:": f"{system_data.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]:.1f}%",
+        "Memory:": f"{system_data.get('memory', {}).get('ram', {}).get('%used', 0.0):.1f}%",
+        "CPU Temp:": f"{data.get('sensors', {}).get('cpu_temp', 0.0):.1f}°C",
+        "Uptime:": format_uptime(system_data.get('uptime', 0))
     }
-
-    # --- Drawing Loop ---
     for label, value in stats_to_draw.items():
-        # Draw bold label on the left
         draw.text((10, y), label, font=font_bold, fill=BLACK)
-
-        # Calculate position for and draw right-aligned value
         value_bbox = draw.textbbox((0, 0), value, font=font_regular)
-        value_width = value_bbox[2] - value_bbox[0]
-        draw.text((right_align_x - value_width, y), value, font=font_regular, fill=BLACK)
-        
+        draw.text((right_align_x - value_bbox[2], y), value, font=font_regular, fill=BLACK)
         y += line_height
-
 
 def draw_version_screen(draw, width, height, data, header_bottom_y):
     """Draws the component versions screen, indicating available updates."""
@@ -440,134 +572,66 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
     text_bbox = draw.textbbox((0, 0), status_text, font=font_small_bold)
     text_width = text_bbox[2] - text_bbox[0]
     draw.text(((width - text_width) / 2, y), status_text, font=font_small_bold, fill=BLACK)
-
-
-# --- GPIO Button Handlers (gpiozero style) ---
-def handle_short_press(button_pin):
-    """Handles short presses for screen navigation."""
-    global current_screen_index, force_redraw, qrcode_mode_active
     
-    # Ignore short presses if QR code is active
-    if qrcode_mode_active:
-        return
 
+# --- e-Ink GPIO Button Handlers ---
+def handle_short_press(button_pin):
+    global current_screen_index, force_redraw, qrcode_mode_active
+    if qrcode_mode_active: return
     logger.info(f"Short press detected on GPIO {button_pin}")
-    if button_pin == KEY2_PIN:
-        current_screen_index = 0
-    elif button_pin == KEY3_PIN:
-        current_screen_index = 1
-    elif button_pin == KEY4_PIN:
-        current_screen_index = 2
+    if button_pin == KEY2_PIN: current_screen_index = 0
+    elif button_pin == KEY3_PIN: current_screen_index = 1
+    elif button_pin == KEY4_PIN: current_screen_index = 2
     force_redraw = True
 
 def handle_refresh_press():
-    """Handles short press for the refresh button."""
     global last_data_refresh_time, force_redraw, qrcode_mode_active
-    
-    # Ignore refresh if QR code is active
-    if qrcode_mode_active:
-        return
-        
+    if qrcode_mode_active: return
     logger.info("Short press detected on refresh button.")
     last_data_refresh_time = 0
     force_redraw = True
 
 def handle_qrcode_toggle():
-    """Handles long press to show/hide the QR code screen."""
     global qrcode_mode_active, force_redraw
     logger.info("Long press detected, toggling QR code mode.")
     qrcode_mode_active = not qrcode_mode_active
     force_redraw = True
 
-def main():
-    global logger, pihole, current_screen_index, force_redraw, qrcode_mode_active
-
-    parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
-    parser.add_argument('-l', '--level', type=str.upper, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help='Set the logging level (default: INFO)')
-    parser.add_argument('-f', '--logfile', type=str, default=None, help='Specify a file to write logs to (e.g., padd_display.log)')
-    parser.add_argument('-s', '--secure', action='store_true', default=False, help='Connect to Pi-hole using HTTPS')
-    parser.add_argument('-t', '--traceback', action='store_true', default=False, help='Force enable rich tracebacks for all log levels.')
-    args = parser.parse_args()
-
-    log_level = getattr(logging, args.level, logging.INFO)
-    # Use the --traceback flag to override the default behavior
-    show_tracebacks = args.traceback
-
-    logger = setup_logging(
-        show_locals=True,
-        logfile=args.logfile,
-        level=log_level,
-        rich_tracebacks=show_tracebacks
-    )
-    
-    logger.info(f"Show tracebacks[{show_tracebacks}]")
-
-    if not PIHOLE_IP or not API_TOKEN:
-        logger.error("PIHOLE_IP and/or API_TOKEN not found in .env file.")
-        sys.exit(1)
-
-    protocol = "https" if args.secure else "http"
-    pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
-    pihole = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
-    logger.info(f"Attempting to connect to Pi-hole at {protocol}://{PIHOLE_IP}")
-    logger.info("Starting PADD e-Ink Display...")
+# --- Main Dispatcher & e-Ink Runner ---
+def run_eink_display(pihole_client, pihole_url):
+    """Initializes and runs the e-Ink display loop."""
+    global padd_data, force_redraw, current_screen_index, last_data_refresh_time, qrcode_mode_active, pihole
+    pihole = pihole_client
     epd = None
-
     try:
         epd = epaper.epaper('epd2in7_V2').EPD()
-
         epd.init()
         epd.Clear()
         epd.Init_4Gray()
         logger.info("EPD Initialized in 4-Gray mode.")
-
-        width = epd.height
-        height = epd.width
+        width, height = epd.height, epd.width
         logger.info(f"Screen dimensions set to {width}x{height}")
 
-        try:
-            splash_logo_image = Image.open(LOGO_PATH)
-        except FileNotFoundError:
-            splash_logo_image = None
-            logger.warning(f"Splash screen logo not found: {LOGO_PATH}")
-            
-        try:
-            header_logo_image = Image.open(HEADER_LOGO_PATH)
-        except FileNotFoundError:
-            header_logo_image = None
-            logger.warning(f"Header logo not found: {HEADER_LOGO_PATH}")
+        splash_logo_image = Image.open(LOGO_PATH) if os.path.exists(LOGO_PATH) else None
+        header_logo_image = Image.open(HEADER_LOGO_PATH) if os.path.exists(HEADER_LOGO_PATH) else None
 
         draw_splash_screen(epd, splash_logo_image, width, height)
-        time.sleep(SPLASH_SCREEN_DURATION_SECONDS)
+        time.sleep(10)
         
-        logger.info("Re-initializing EPD in B&W mode for main display...")
         epd.init()
         epd.Clear()
 
-        # Initialize buttons using gpiozero, separating the top button's events
-        logger.info("Initializing GPIO Buttons with gpiozero...")
-        button1 = Button(KEY1_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S, hold_time=BUTTON_HOLD_S)
-        button2 = Button(KEY2_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
-        button3 = Button(KEY3_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
-        button4 = Button(KEY4_PIN, pull_up=True, bounce_time=BUTTON_DEBOUNCE_S)
-
-        # Assign handlers for short press (refresh) and long press (QR code)
-        button1.when_pressed = handle_refresh_press
-        button1.when_held = handle_qrcode_toggle
-
-        # Assign handlers for other buttons
-        button2.when_pressed = lambda: handle_short_press(KEY2_PIN)
-        button3.when_pressed = lambda: handle_short_press(KEY3_PIN)
-        button4.when_pressed = lambda: handle_short_press(KEY4_PIN)
-        logger.info("GPIO Buttons Initialized.")
+        button1 = Button(KEY1_PIN, pull_up=True, bounce_time=0.3, hold_time=5)
+        button2, button3, button4 = Button(KEY2_PIN, pull_up=True, bounce_time=0.3), Button(KEY3_PIN, pull_up=True, bounce_time=0.3), Button(KEY4_PIN, pull_up=True, bounce_time=0.3)
+        button1.when_pressed, button1.when_held = handle_refresh_press, handle_qrcode_toggle
+        button2.when_pressed, button3.when_pressed, button4.when_pressed = lambda: handle_short_press(KEY2_PIN), lambda: handle_short_press(KEY3_PIN), lambda: handle_short_press(KEY4_PIN)
         
         screens = [draw_pihole_stats_screen, draw_system_info_screen, draw_version_screen]
         num_screens = len(screens)
         last_screen_rotate_time = time.time()
 
         while True:
-            # Only auto-rotate if the QR code screen is not active
-            if not qrcode_mode_active and time.time() - last_screen_rotate_time > SCREEN_AUTO_ROTATE_INTERVAL_SECONDS:
+            if not qrcode_mode_active and time.time() - last_screen_rotate_time > 20:
                 current_screen_index = (current_screen_index + 1) % num_screens
                 force_redraw = True
                 last_screen_rotate_time = time.time()
@@ -575,16 +639,14 @@ def main():
             if force_redraw:
                 image = Image.new('1', (width, height), WHITE)
                 draw = ImageDraw.Draw(image)
-
                 if qrcode_mode_active:
-                    logger.info("Drawing QR code screen...")
                     draw_qrcode_screen(draw, width, height, pihole_url)
                 else:
                     refresh_data()
                     logger.info(f"Drawing screen {current_screen_index + 1}/{num_screens}...")
                     header_bottom_y = draw_header(draw, width, header_logo_image)
                     screens[current_screen_index](draw, width, height, padd_data, header_bottom_y)
-                
+                    
                 epd.display(epd.getbuffer(image))
                 logger.info("EPD display updated.")
                 force_redraw = False
@@ -594,14 +656,38 @@ def main():
     except KeyboardInterrupt:
         logger.info("Exit signal received.")
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred in e-Ink mode: {e}", exc_info=True)
     finally:
-        logger.info("Cleaning up...")
-        # No need for GPIO.cleanup(), gpiozero handles it automatically
         if epd:
             epd.Clear()
             epd.sleep()
-        logger.info("Script finished.")
+
+def main():
+    global logger
+    parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
+    parser.add_argument('-T', '--tui', action='store_true', default=False, help='Run in terminal UI mode instead of e-Ink display.')
+    parser.add_argument('-l', '--level', type=str.upper, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help='Set the logging level (default: INFO)')
+    parser.add_argument('-f', '--logfile', type=str, default=None, help='Specify a file to write logs to')
+    parser.add_argument('-s', '--secure', action='store_true', default=False, help='Connect to Pi-hole using HTTPS')
+    parser.add_argument('-t', '--traceback', action='store_true', default=False, help='Force enable rich tracebacks')
+    args = parser.parse_args()
+
+    logger = setup_logging(level=getattr(logging, args.level), logfile=args.logfile, rich_tracebacks=args.traceback)
+    
+    if not PIHOLE_IP or not API_TOKEN:
+        logger.critical("PIHOLE_IP and/or API_TOKEN not found in .env file.")
+        sys.exit(1)
+
+    protocol = "https" if args.secure else "http"
+    pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
+    pihole_client = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
+    logger.info(f"Connecting to Pi-hole at {protocol}://{PIHOLE_IP}")
+
+    if args.tui:
+        app = PADD_TUI(pihole_client=pihole_client)
+        app.run()
+    else:
+        run_eink_display(pihole_client=pihole_client, pihole_url=pihole_url)
 
 if __name__ == "__main__":
     main()
