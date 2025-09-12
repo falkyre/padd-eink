@@ -5,6 +5,7 @@ import os
 import time
 import logging
 import argparse
+import importlib.metadata
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -69,6 +70,13 @@ last_data_refresh_time = 0
 current_screen_index = 0
 force_redraw = True
 qrcode_mode_active = False # New state for QR code screen
+
+# Get the version of this script from the pyproject.toml
+try:
+   __version__ = importlib.metadata.version("padd-eink")
+except importlib.metadata.PackageNotFoundError:
+   __version__ = "0.0.0-dev"
+
 
 # --- Helper Functions (used by both modes) ---
 def format_uptime(seconds):
@@ -220,7 +228,8 @@ class SystemStats(Static):
         system = data.get('system', {})
 
         # Generate the ASCII bar for CPU
-        cpu_per = system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
+        #cpu_per = system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
+        cpu_per = system.get('cpu', {}).get('%cpu',[0.0])
         cpu_bar = generate_ascii_bar(cpu_per, total_width=40)
         cpu_color = heatmap_generator(cpu_per)
 
@@ -244,12 +253,21 @@ class SystemStats(Static):
 
         color = heatmap_generator(cpu_temp)
 
+        # Get the cpu load 1, 5 , 15 mins
+        cpu_load_1 = system.get('cpu', {}).get('load', {}).get('raw', [0.0])[0]
+        cpu_load_1_color = heatmap_generator(cpu_load_1)
+        cpu_load_5 = system.get('cpu', {}).get('load', {}).get('raw', [0.0])[1]
+        cpu_load_5_color = heatmap_generator(cpu_load_5)
+        cpu_load_15 = system.get('cpu', {}).get('load', {}).get('raw', [0.0])[2]
+        cpu_load_15_color = heatmap_generator(cpu_load_15)
+
+
         lines = [
             f"[bold]Host:[/bold]       {data.get('node_name', 'N/A')} ({data.get('iface', {}).get('v4', {}).get('addr', 'N/A')})",
             f"[bold]CPU Used:[/bold]   {cpu_bar} [{cpu_color}]{cpu_per:.1f}%[/{cpu_color}]",
+            f"[bold]CPU Load:[/bold]   [{cpu_load_1_color}]{cpu_load_1:.2f}[/{cpu_load_1_color}], [{cpu_load_5_color}]{cpu_load_5:.2f}[/{cpu_load_5_color}], [{cpu_load_15_color}]{cpu_load_15:.2f}[/{cpu_load_15_color}]",
             f"[bold]Memory:[/bold]     {mem_bar} [{mem_color}]{mem_load:.1f}%[/{mem_color}]",
-            f"[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}]   {cpu_emoji}",
-            f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}"
+            f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}" f"\t[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}]   {cpu_emoji}"
         ]
         self.update("\n".join(lines))
         
@@ -285,7 +303,7 @@ class PiHoleVersions(Container):
 
         any_updates = False
         checkmark = "\u2713"
-        lines = []
+        lines = [f"[bold]PADD-eInk:[/bold]\tv{__version__} {checkmark}"]
 
         components = {"Pi-hole": "core", " Web UI": "web", "    FTL": "ftl"}
         for name, key in components.items():
@@ -325,6 +343,7 @@ class PADD_TUI(App):
 
     TUI_REFRESH_INTERVAL = 60
 
+
     def __init__(self, pihole_client, pihole_url):
         super().__init__()
         self.pihole = pihole_client
@@ -333,7 +352,8 @@ class PADD_TUI(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        yield Header(name="PADD-eInk Terminal Mode")
+
+        yield Header()
         with VerticalScroll(id="main-container"):
             yield PiHoleStats("Loading...")
             yield SystemStats("Loading...")
@@ -342,9 +362,11 @@ class PADD_TUI(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
+
         self.run_update_worker()
         self.set_interval(self.TUI_REFRESH_INTERVAL, self.run_update_worker)
         self.set_interval(1, self.tick_progress_bar) # Timer for progress bar
+        self.title =  f"PADD-eInk Terminal Mode v{__version__}"
 
     def tick_progress_bar(self) -> None:
         """Updates the progress bar every second."""
@@ -734,7 +756,9 @@ def run_eink_display(pihole_client, pihole_url):
 
 def main():
     global logger
+
     parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
+    parser.add_argument('-V', '--version', action='version', version=f'PADD-eink v{__version__}')
     parser.add_argument('-T', '--tui', action='store_true', default=False, help='Run in terminal UI mode instead of e-Ink display.')
     parser.add_argument('-l', '--level', type=str.upper, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help='Set the logging level (default: INFO)')
     parser.add_argument('-f', '--logfile', type=str, default=None, help='Specify a file to write logs to')
