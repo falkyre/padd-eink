@@ -16,9 +16,10 @@ from richcolorlog import setup_logging
 import epaper
 import qrcode
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, ProgressBar
+from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link
 from textual.containers import VerticalScroll, Container
 from textual import work
+from rich.emoji import Emoji
 
 
 # --- Configuration ---
@@ -129,6 +130,41 @@ def generate_ascii_bar(percent: float, total_width: int = 50) -> str:
    
     return f"{bar_filled}{bar_empty}"
 
+def heatmap_generator(value1, value2=None):
+    """
+    Generates a heatmap color string based on a percentage.
+
+    The percentage can be provided directly or calculated from two values.
+
+    Args:
+        value1 (int or float): If value2 is not provided, this is treated as the
+                               percentage. Otherwise, it's the numerator.
+        value2 (int or float, optional): The denominator for calculating the
+                                         percentage. Defaults to None.
+
+    Returns:
+        str: A string representing the color ('green', 'yellow', or 'red').
+             Returns an error string if division by zero occurs.
+    """
+    load = 0
+    if value2 is None:
+        # If one number is provided, use it as the percentage
+        load = round(value1)
+    else:
+        # If two numbers are provided, calculate the percentage
+        if value2 == 0:
+            return "Error: Division by zero"
+        load = round((value1 / value2) * 100)
+
+    # Color logic based on the percentage
+    if load < 75:
+        return "green"
+    elif load < 90:
+        return "yellow"
+    else:
+        return "red"
+
+
 # --- Textual TUI Widgets ---
 class PiHoleStats(Static):
     """A widget to display Pi-hole statistics."""
@@ -184,12 +220,14 @@ class SystemStats(Static):
         system = data.get('system', {})
 
         # Generate the ASCII bar for CPU
-        cpu_load = system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
-        cpu_bar = generate_ascii_bar(cpu_load, total_width=40)
+        cpu_per = system.get('cpu', {}).get('load', {}).get('percent', [0.0])[0]
+        cpu_bar = generate_ascii_bar(cpu_per, total_width=40)
+        cpu_color = heatmap_generator(cpu_per)
 
         # Generate the ASCII bar for Memory
         mem_load = system.get('memory', {}).get('ram', {}).get('%used', 0.0)
         mem_bar = generate_ascii_bar(mem_load, total_width=40)
+        mem_color = heatmap_generator(mem_load)
 
         # CPU temperature colors
         # Get the CPU temperature value safely
@@ -198,20 +236,19 @@ class SystemStats(Static):
         # Determine the color based on the temperature
         # Add emoji for rich rendering
         if cpu_temp > 80:
-            color = "red"
-            cpu_emoji = ":ok-emoji::cool-emoji"
+            cpu_emoji = str(Emoji("thumbs_down")) + " " + str(Emoji("fire"))
         elif cpu_temp >= 60:
-            color = "yellow"
-            cpu_emoji = ":ok-emoji::cool-emoji"
+            cpu_emoji = str(Emoji("thumbs_up")) + " " + str(Emoji("thermometer"))
         else:
-            color = "green"
-            cpu_emoji = ":ok-emoji::cool-emoji"
+            cpu_emoji = str(Emoji("thumbs_up")) + " " + str(Emoji("ok_hand"))
+
+        color = heatmap_generator(cpu_temp)
 
         lines = [
             f"[bold]Host:[/bold]       {data.get('node_name', 'N/A')} ({data.get('iface', {}).get('v4', {}).get('addr', 'N/A')})",
-            f"[bold]CPU Load:[/bold]   {cpu_bar} {cpu_load:.1f}%",
-            f"[bold]Memory:[/bold]     {mem_bar} {mem_load:.1f}%",
-            f"[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}] {cpu_emoji}",
+            f"[bold]CPU Used:[/bold]   {cpu_bar} [{cpu_color}]{cpu_per:.1f}%[/{cpu_color}]",
+            f"[bold]Memory:[/bold]     {mem_bar} [{mem_color}]{mem_load:.1f}%[/{mem_color}]",
+            f"[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}]   {cpu_emoji}",
             f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}"
         ]
         self.update("\n".join(lines))
@@ -219,10 +256,16 @@ class SystemStats(Static):
 class PiHoleVersions(Container):
     """A widget to display component versions and a refresh progress bar."""
 
+    def __init__(self, pihole_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self.pihole_url = pihole_url
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the container."""
         yield Static("Loading...", id="version-text")
         yield ProgressBar(total=100, show_eta=False, show_percentage = False, name= "next refresh", id="refresh-progress")
+        yield Rule(line_style="double")
+        yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
 
     def on_mount(self) -> None:
         self.border_title = "Component Versions"
@@ -282,9 +325,10 @@ class PADD_TUI(App):
 
     TUI_REFRESH_INTERVAL = 60
 
-    def __init__(self, pihole_client):
+    def __init__(self, pihole_client, pihole_url):
         super().__init__()
         self.pihole = pihole_client
+        self.pihole_url = pihole_url
         self.countdown = self.TUI_REFRESH_INTERVAL
 
     def compose(self) -> ComposeResult:
@@ -293,7 +337,7 @@ class PADD_TUI(App):
         with VerticalScroll(id="main-container"):
             yield PiHoleStats("Loading...")
             yield SystemStats("Loading...")
-            yield PiHoleVersions(id="sidebar") # Container doesn't need initial content
+            yield PiHoleVersions(self.pihole_url, id="sidebar") # Container doesn't need initial content
         yield Footer()
 
     def on_mount(self) -> None:
@@ -476,14 +520,6 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
 
     y += bar_height # Move y down for next section
 
-    # --- Draw Top Stats with new formatting ---
-   # top_stats = {
-   #     "Latest:": data.get('recent_blocked', 'N/A'),
-   #     "Top Ad:": data.get('top_blocked', 'N/A'),
-   #     "Top Domain:": data.get('top_domain', 'N/A'),
-   #     "Top Client:": data.get('top_client', 'N/A'),
-   #     "Clients:": f"{data.get('active_clients')}"
-   # }
 
     top_stats = {
         "Latest:": "N/A" if (latest := data.get('recent_blocked')) is None else latest,
@@ -718,7 +754,7 @@ def main():
     logger.info(f"Connecting to Pi-hole at {protocol}://{PIHOLE_IP}")
 
     if args.tui:
-        app = PADD_TUI(pihole_client=pihole_client)
+        app = PADD_TUI(pihole_client=pihole_client,pihole_url=pihole_url)
         app.run()
     else:
         run_eink_display(pihole_client=pihole_client, pihole_url=pihole_url)
