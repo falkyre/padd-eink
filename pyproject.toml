@@ -24,10 +24,10 @@ dependencies = [
     "pihole6api",
     "python-dotenv",
     "Pillow",
-    "gpiozero",
-    "lgpio",
+    "gpiozero; platform_machine == 'armv7l' or platform_machine == 'aarch64' or platform_machine == 'armv6l'",
+    "lgpio; platform_machine == 'armv7l' or platform_machine == 'aarch64' or platform_machine == 'armv6l'",
     "richcolorlog",
-    "waveshare-epaper",
+    "waveshare-epaper; platform_machine == 'armv7l' or platform_machine == 'aarch64' or platform_machine == 'armv6l'",
     "qrcode",
     "textual",
 ]
@@ -46,3 +46,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/padd_eink"]
+

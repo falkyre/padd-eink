@@ -5,20 +5,19 @@ import os
 import time
 import logging
 import argparse
+import platform
 import importlib.metadata
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # --- Library Imports ---
-from gpiozero import Button
 from dotenv import load_dotenv
 from pihole6api import PiHole6Client
 from richcolorlog import setup_logging
-import epaper
 import qrcode
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link
-from textual.containers import VerticalScroll, Container
+from textual.containers import VerticalScroll, Container, Center
 from textual import work
 from rich.emoji import Emoji
 
@@ -283,7 +282,8 @@ class PiHoleVersions(Container):
         yield Static("Loading...", id="version-text")
         yield ProgressBar(total=100, show_eta=False, show_percentage = False, name= "next refresh", id="refresh-progress")
         yield Rule(line_style="double")
-        yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
+        with Center():
+            yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
 
     def on_mount(self) -> None:
         self.border_title = "Component Versions"
@@ -692,6 +692,8 @@ def handle_qrcode_toggle():
 # --- Main Dispatcher & e-Ink Runner ---
 def run_eink_display(pihole_client, pihole_url):
     """Initializes and runs the e-Ink display loop."""
+    from gpiozero import Button
+    import epaper
     global padd_data, force_redraw, current_screen_index, last_data_refresh_time, qrcode_mode_active, pihole
     pihole = pihole_client
     epd = None
@@ -777,7 +779,11 @@ def main():
     pihole_client = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
     logger.info(f"Connecting to Pi-hole at {protocol}://{PIHOLE_IP}")
 
-    if args.tui:
+    is_arm = platform.machine() in ['armv7l', 'aarch64', 'armv6l']
+
+    if args.tui or not is_arm:
+        if not args.tui and not is_arm:
+            logger.info("Not running on a recognized ARM platform, forcing TUI mode.")
         app = PADD_TUI(pihole_client=pihole_client,pihole_url=pihole_url)
         app.run()
     else:
