@@ -1,5 +1,17 @@
 #sidebar {
     dock: left;
-    width: 30;
+    width: 40;
     height: 100%;
+}
+
+#admin-qr {
+        height: auto;
+        padding: 2 4;
+        display: none; /* Start with the QR code hidden */
+    }
+
+#qr-switch-container {
+    padding: 1 2;
+    height: auto;
+    align: center middle;
 }

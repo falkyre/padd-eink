@@ -2,13 +2,14 @@
 # -*- coding:utf-8 -*-
 import sys
 import os
+import io
 import time
 import logging
 import argparse
 import platform
 import importlib.metadata
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 
 # --- Library Imports ---
 from dotenv import load_dotenv
@@ -16,8 +17,9 @@ from pihole6api import PiHole6Client
 from richcolorlog import setup_logging
 import qrcode
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link
-from textual.containers import VerticalScroll, Container, Center
+from textual.events import Mount
+from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link, Switch
+from textual.containers import VerticalScroll, Container, Center, Vertical
 from textual import work
 from rich.emoji import Emoji
 
@@ -165,11 +167,30 @@ def heatmap_generator(value1, value2=None):
 
     # Color logic based on the percentage
     if load < 75:
-        return "green"
+        return "lime"
     elif load < 90:
         return "yellow"
     else:
         return "red"
+    
+def generate_qrascii(pihole_url: str):
+    # Create a QR code object
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=1,  # Smaller box size for console output
+        border=4,
+    )
+
+    # Add data to the QR code
+    qr.add_data("Hello, ASCII QR Code!")
+    qr.make(fit=True)
+    f = io.StringIO()
+    qr.print_ascii(out=f)
+    f.seek(0)  
+    qrstr = f.read()
+    # Print the QR code to the console
+    return qrstr 
 
 
 # --- Textual TUI Widgets ---
@@ -269,7 +290,38 @@ class SystemStats(Static):
             f"[bold]Uptime:[/bold]     {format_uptime(system.get('uptime', 0))}" f"\t[bold]CPU Temp:[/bold]   [{color}]{cpu_temp:.1f}°C[/{color}]   {cpu_emoji}"
         ]
         self.update("\n".join(lines))
+
+class AdminUrl(Container):
+    """A widget to display admin url and qr code"""
+    
+    def __init__(self, pihole_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self.pihole_url = pihole_url
+
+    def compose(self) -> ComposeResult:
         
+        with Vertical(id="qr-switch-container"):
+            yield Switch(id="qr-switch")
+            yield Static("Show QR Code", classes="label")
+        
+        admin_qr = generate_qrascii("Test URL")
+
+        yield Static(admin_qr,id="admin_qr")
+        yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
+
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        """Called when the switch is toggled."""
+        qr_code_widget = self.query_one("#admin_qr", Static)
+        if event.value:
+            # If the switch is on, show the QR code
+            qr_code_widget.display = True
+            
+        else:
+            # If the switch is off, hide the QR code
+            qr_code_widget.display = False
+
+
 class PiHoleVersions(Container):
     """A widget to display component versions and a refresh progress bar."""
 
@@ -282,8 +334,8 @@ class PiHoleVersions(Container):
         yield Static("Loading...", id="version-text")
         yield ProgressBar(total=100, show_eta=False, show_percentage = False, name= "next refresh", id="refresh-progress")
         yield Rule(line_style="double")
-        with Center():
-            yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
+        yield AdminUrl(self.pihole_url)
+        
 
     def on_mount(self) -> None:
         self.border_title = "Component Versions"
