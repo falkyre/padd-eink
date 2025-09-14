@@ -18,8 +18,9 @@ from richcolorlog import setup_logging
 import qrcode
 from textual.app import App, ComposeResult
 from textual.events import Mount
-from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link, Switch
-from textual.containers import VerticalScroll, Container, Center, Vertical
+from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link, Button
+from textual.containers import VerticalScroll, Container, Center, Vertical, Horizontal
+from textual.screen import ModalScreen
 from textual import work
 from rich.emoji import Emoji
 
@@ -183,7 +184,7 @@ def generate_qrascii(pihole_url: str):
     )
 
     # Add data to the QR code
-    qr.add_data("Hello, ASCII QR Code!")
+    qr.add_data(pihole_url)
     qr.make(fit=True)
     f = io.StringIO()
     qr.print_ascii(out=f)
@@ -291,35 +292,30 @@ class SystemStats(Static):
         ]
         self.update("\n".join(lines))
 
-class AdminUrl(Container):
-    """A widget to display admin url and qr code"""
-    
+class AdminUrlModal(ModalScreen):
+    """A modal screen to display admin url and qr code"""
+
     def __init__(self, pihole_url: str, **kwargs):
         super().__init__(**kwargs)
         self.pihole_url = pihole_url
 
     def compose(self) -> ComposeResult:
-        
-        with Vertical(id="qr-switch-container"):
-            yield Switch(id="qr-switch")
-            yield Static("Show QR Code", classes="label")
-        
-        admin_qr = generate_qrascii("Test URL")
+        with Horizontal(id="modal-container"):
+            with Vertical(id="qr-link-container"):
+                admin_qr = generate_qrascii(self.pihole_url)
+                yield Link(
+                    "Pihole Admin URL",
+                    url=self.pihole_url,
+                    tooltip=self.pihole_url,
+                    id="admin-link",
+                )
+                yield Static(admin_qr,id="admin_qr")
+        with Center():
+            yield Button("Close", variant="primary", id="close-modal")
 
-        yield Static(admin_qr,id="admin_qr")
-        yield Link("Pihole Admin URL",url=self.pihole_url,tooltip=self.pihole_url,)
-
-
-    def on_switch_changed(self, event: Switch.Changed) -> None:
-        """Called when the switch is toggled."""
-        qr_code_widget = self.query_one("#admin_qr", Static)
-        if event.value:
-            # If the switch is on, show the QR code
-            qr_code_widget.display = True
-            
-        else:
-            # If the switch is off, hide the QR code
-            qr_code_widget.display = False
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-modal":
+            self.app.pop_screen()
 
 
 class PiHoleVersions(Container):
@@ -334,13 +330,18 @@ class PiHoleVersions(Container):
         yield Static("Loading...", id="version-text")
         yield ProgressBar(total=100, show_eta=False, show_percentage = False, name= "next refresh", id="refresh-progress")
         yield Rule(line_style="double")
-        yield AdminUrl(self.pihole_url)
+        with Center():
+            yield Button("Show Admin URL", id="show-admin-url")
         
 
     def on_mount(self) -> None:
         self.border_title = "Component Versions"
         self.styles.border = ("round","green")
         self.styles.border_title_align = "center"
+        
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "show-admin-url":
+            self.app.push_screen(AdminUrlModal(self.pihole_url))
 
     def update_content(self, padd_data: dict) -> None:
         version_text_widget = self.query_one("#version-text")
@@ -460,6 +461,7 @@ class PADD_TUI(App):
 
     def action_quit(self) -> None:
         """Called when the user presses the 'q' key."""
+        self.pihole.close_session()
         self.exit()
 
 # --- e-Ink Drawing Functions ---
@@ -801,6 +803,7 @@ def run_eink_display(pihole_client, pihole_url):
 
     except KeyboardInterrupt:
         logger.info("Exit signal received.")
+        pihole_client.close_session()
     except Exception as e:
         logger.error(f"An unexpected error occurred in e-Ink mode: {e}", exc_info=True)
     finally:

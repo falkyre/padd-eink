@@ -6,12 +6,34 @@
 
 #admin-qr {
         height: auto;
-        padding: 2 4;
-        display: none; /* Start with the QR code hidden */
+        align: center middle;
     }
 
-#qr-switch-container {
-    padding: 1 2;
+AdminUrlModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+#modal-container {
+    width: 50%;
+    height: 80%;
+    background: $panel;
+    border: thick $primary-lighten-2;
+    align: center middle;
+}
+
+#qr-link-container {
     height: auto;
     align: center middle;
 }
+
+#admin-link {
+    padding-left: 8;
+    align: center middle;
+}
+
+
+
+
+
+
