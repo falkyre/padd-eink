@@ -72,6 +72,8 @@ last_data_refresh_time = 0
 current_screen_index = 0
 force_redraw = True
 qrcode_mode_active = False # New state for QR code screen
+connection_failed_at_boot = False
+
 
 # Get the version of this script from the pyproject.toml
 try:
@@ -720,6 +722,38 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
     draw.text(((width - text_width) / 2, y), status_text, font=font_small_bold, fill=BLACK)
     
 
+def draw_connection_failed_screen(draw, width, height, header_bottom_y):
+    """Draws the screen indicating a failure to connect to Pi-hole."""
+    try:
+        font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
+        font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
+    except IOError:
+        font_bold, font_regular = ImageFont.load_default(), ImageFont.load_default()
+
+    y = header_bottom_y + 20
+    line_height = FONT_SIZE_BODY + 5
+
+    # Line 1: "UNABLE TO CONNECT"
+    line1_text = "UNABLE TO CONNECT"
+    line1_bbox = draw.textbbox((0, 0), line1_text, font=font_bold)
+    line1_width = line1_bbox[2] - line1_bbox[0]
+    draw.text(((width - line1_width) / 2, y), line1_text, font=font_bold, fill=BLACK)
+    y += line_height
+
+    # Line 2: "{PIHOLE_IP}"
+    line2_text = f"to {PIHOLE_IP}"
+    line2_bbox = draw.textbbox((0, 0), line2_text, font=font_bold)
+    line2_width = line2_bbox[2] - line2_bbox[0]
+    draw.text(((width - line2_width) / 2, y), line2_text, font=font_bold, fill=BLACK)
+    y += line_height + 10
+
+    # Line 3: "Is PiHole OK?"
+    line3_text = "Is PiHole OK?"
+    line3_bbox = draw.textbbox((0, 0), line3_text, font=font_regular)
+    line3_width = line3_bbox[2] - line3_bbox[0]
+    draw.text(((width - line3_width) / 2, y), line3_text, font=font_regular, fill=BLACK)
+
+
 # --- e-Ink GPIO Button Handlers ---
 def handle_short_press(button_pin):
     global current_screen_index, force_redraw, qrcode_mode_active
@@ -731,11 +765,13 @@ def handle_short_press(button_pin):
     force_redraw = True
 
 def handle_refresh_press():
-    global last_data_refresh_time, force_redraw, qrcode_mode_active
+    global last_data_refresh_time, force_redraw, qrcode_mode_active, connection_failed_at_boot
     if qrcode_mode_active: return
     logger.info("Short press detected on refresh button.")
     last_data_refresh_time = 0
     force_redraw = True
+    if connection_failed_at_boot:
+        connection_failed_at_boot = False # Allow retry
 
 def handle_qrcode_toggle():
     global qrcode_mode_active, force_redraw
@@ -748,7 +784,7 @@ def run_eink_display(pihole_client, pihole_url):
     """Initializes and runs the e-Ink display loop."""
     from gpiozero import Button
     import epaper
-    global padd_data, force_redraw, current_screen_index, last_data_refresh_time, qrcode_mode_active, pihole
+    global padd_data, force_redraw, current_screen_index, last_data_refresh_time, qrcode_mode_active, pihole, connection_failed_at_boot
     pihole = pihole_client
     epd = None
     try:
@@ -766,6 +802,21 @@ def run_eink_display(pihole_client, pihole_url):
         draw_splash_screen(epd, splash_logo_image, width, height)
         time.sleep(10)
         
+        # --- Initial Connection Attempt with Retries ---
+        if not padd_data: # Only check if data is not already there
+            logger.info("Attempting initial connection to Pi-hole...")
+            for i in range(3):
+                refresh_data()
+                if padd_data:
+                    break
+                logger.warning(f"Initial connection attempt {i+1}/3 failed. Retrying in 5 seconds...")
+                time.sleep(5)
+            
+            if not padd_data:
+                logger.error("Could not connect to Pi-hole after 3 attempts.")
+                connection_failed_at_boot = True
+                force_redraw = True
+
         epd.init()
         epd.Clear()
 
@@ -779,7 +830,7 @@ def run_eink_display(pihole_client, pihole_url):
         last_screen_rotate_time = time.time()
 
         while True:
-            if not qrcode_mode_active and time.time() - last_screen_rotate_time > 20:
+            if not qrcode_mode_active and not connection_failed_at_boot and time.time() - last_screen_rotate_time > 20:
                 current_screen_index = (current_screen_index + 1) % num_screens
                 force_redraw = True
                 last_screen_rotate_time = time.time()
@@ -787,7 +838,11 @@ def run_eink_display(pihole_client, pihole_url):
             if force_redraw:
                 image = Image.new('1', (width, height), WHITE)
                 draw = ImageDraw.Draw(image)
-                if qrcode_mode_active:
+                
+                if connection_failed_at_boot:
+                    header_bottom_y = draw_header(draw, width, header_logo_image)
+                    draw_connection_failed_screen(draw, width, height, header_bottom_y)
+                elif qrcode_mode_active:
                     draw_qrcode_screen(draw, width, height, pihole_url)
                 else:
                     refresh_data()

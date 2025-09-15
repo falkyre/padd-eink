@@ -17,8 +17,8 @@ AdminUrlModal {
 #modal-container {
     width: 50%;
     height: 80%;
-    background: $panel;
-    border: thick $primary-lighten-2;
+    background: $panel-darken-2;
+    border: round $primary-lighten-2;
     align: center middle;
 }
 
