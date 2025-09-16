@@ -27,7 +27,7 @@ BUTTON_HOLD_S = 5  # Time in seconds to hold for QR code
 project_dir = os.path.join(os.path.dirname(__file__), "..", "..")
 # --- Paths (Updated to use subdirectories) ---
 LOGO_PATH = os.path.join(project_dir, "images", "Pihole-eInk.jpg")
-HEADER_LOGO_PATH = os.path.join(project_dir, "images", "black-hole.png")
+HEADER_LOGO_PATH = os.path.join(project_dir, "images", "black-hole-2.png")
 # Switched to DejaVuSans for better character support (including checkmarks)
 FONT_PATH = os.path.join(project_dir, "fonts", "DejaVuSans.ttf")
 FONT_BOLD_PATH = os.path.join(project_dir, "fonts", "DejaVuSans-Bold.ttf")
