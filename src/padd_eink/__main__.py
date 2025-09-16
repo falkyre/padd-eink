@@ -771,7 +771,7 @@ def handle_refresh_press():
     last_data_refresh_time = 0
     force_redraw = True
     if connection_failed_at_boot:
-        pihole_client = create_pihole_client(pihole_url, API_TOKEN)
+        pihole_client = create_pihole_client(PIHOLE_IP, API_TOKEN)
         if pihole_client:
             connection_failed_at_boot = False # Allow retry
 
