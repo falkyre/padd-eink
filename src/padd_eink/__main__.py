@@ -868,11 +868,11 @@ def run_eink_display(pihole_client, pihole_url):
             epd.Clear()
             epd.sleep()
 
-def create_pihole_client(pihole_url, api_token):
+def create_pihole_client(pihole_ip, api_token):
     """Attempts to create and return a PiHole6Client instance."""
-    logger.info(f"Connecting to Pi-hole at {pihole_url}")
+    logger.info(f"Connecting to Pi-hole at {pihole_ip}")
     try:
-        client = PiHole6Client(pihole_url, api_token)
+        client = PiHole6Client(pihole_ip, api_token)
         # Optionally, you could add a quick test here to see if the connection is truly valid
         # For example, by fetching a small piece of data.
         # client.get_summary() 
@@ -883,7 +883,7 @@ def create_pihole_client(pihole_url, api_token):
         return None
 
 def main():
-    global logger, pihole_client, pihole_url, API_TOKEN
+    global logger, pihole_client, PIHOLE_IP, API_TOKEN
 
     parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
     parser.add_argument('-V', '--version', action='version', version=f'PADD-eink v{__version__}')
@@ -903,7 +903,7 @@ def main():
     protocol = "https" if args.secure else "http"
     pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
 
-    pihole_client = create_pihole_client(pihole_url, API_TOKEN)
+    pihole_client = create_pihole_client(PIHOLE_IP, API_TOKEN)
     if not pihole_client:
         connection_failed_at_boot = True
 
