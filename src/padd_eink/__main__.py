@@ -765,13 +765,15 @@ def handle_short_press(button_pin):
     force_redraw = True
 
 def handle_refresh_press():
-    global last_data_refresh_time, force_redraw, qrcode_mode_active, connection_failed_at_boot
+    global last_data_refresh_time, force_redraw, qrcode_mode_active, connection_failed_at_boot, pihole_client, pihole_url
     if qrcode_mode_active: return
     logger.info("Short press detected on refresh button.")
     last_data_refresh_time = 0
     force_redraw = True
     if connection_failed_at_boot:
-        connection_failed_at_boot = False # Allow retry
+        pihole_client = create_pihole_client(pihole_url, API_TOKEN)
+        if pihole_client:
+            connection_failed_at_boot = False # Allow retry
 
 def handle_qrcode_toggle():
     global qrcode_mode_active, force_redraw
@@ -866,8 +868,22 @@ def run_eink_display(pihole_client, pihole_url):
             epd.Clear()
             epd.sleep()
 
+def create_pihole_client(pihole_url, api_token):
+    """Attempts to create and return a PiHole6Client instance."""
+    logger.info(f"Connecting to Pi-hole at {pihole_url}")
+    try:
+        client = PiHole6Client(pihole_url, api_token)
+        # Optionally, you could add a quick test here to see if the connection is truly valid
+        # For example, by fetching a small piece of data.
+        # client.get_summary() 
+        logger.info("Successfully connected to Pi-hole.")
+        return client
+    except Exception as e:
+        logger.error(f"Could not connect to Pi-hole: {e}")
+        return None
+
 def main():
-    global logger
+    global logger, pihole_client, pihole_url, API_TOKEN
 
     parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
     parser.add_argument('-V', '--version', action='version', version=f'PADD-eink v{__version__}')
@@ -887,13 +903,9 @@ def main():
     protocol = "https" if args.secure else "http"
     pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
 
-    logger.info(f"Connecting to Pi-hole at {protocol}://{PIHOLE_IP}")
-    try:    
-        pihole_client = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
-    except:
-        logger.error("Could not connect to Pi-hole .....")
+    pihole_client = create_pihole_client(pihole_url, API_TOKEN)
+    if not pihole_client:
         connection_failed_at_boot = True
-        pihole_client = None
 
     is_arm = platform.machine() in ['armv7l', 'aarch64', 'armv6l']
 
