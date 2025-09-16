@@ -46,7 +46,7 @@ connection_failed_at_boot = False
 # --- e-Ink Drawing Functions ---
 def draw_splash_screen(epd, logo_image, width, height):
     logger.info("Displaying 4-gray splash screen...")
-    image = Image.new("L", (width + 2, height + 2), 255)
+    image = Image.new("L", (width, height), 255)
     draw = ImageDraw.Draw(image)
     if logo_image:
         logo_w, logo_h = logo_image.size
