@@ -886,8 +886,14 @@ def main():
 
     protocol = "https" if args.secure else "http"
     pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
-    pihole_client = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
+
     logger.info(f"Connecting to Pi-hole at {protocol}://{PIHOLE_IP}")
+    try:    
+        pihole_client = PiHole6Client(f"{protocol}://{PIHOLE_IP}", API_TOKEN)
+    except:
+        logger.error("Could not connect to Pi-hole .....")
+        connection_failed_at_boot = True
+        pihole_client = None
 
     is_arm = platform.machine() in ['armv7l', 'aarch64', 'armv6l']
 
