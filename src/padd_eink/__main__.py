@@ -771,7 +771,7 @@ def handle_refresh_press():
     last_data_refresh_time = 0
     force_redraw = True
     if connection_failed_at_boot:
-        pihole_client = create_pihole_client(PIHOLE_IP, API_TOKEN)
+        pihole_client = create_pihole_client(pihole_auth, API_TOKEN)
         if pihole_client:
             connection_failed_at_boot = False # Allow retry
 
@@ -860,7 +860,8 @@ def run_eink_display(pihole_client, pihole_url):
 
     except KeyboardInterrupt:
         logger.info("Exit signal received.")
-        pihole_client.close_session()
+        if pihole_client is not None:
+            pihole_client.close_session()
     except Exception as e:
         logger.error(f"An unexpected error occurred in e-Ink mode: {e}", exc_info=True)
     finally:
@@ -883,7 +884,7 @@ def create_pihole_client(pihole_ip, api_token):
         return None
 
 def main():
-    global logger, pihole_client, PIHOLE_IP, API_TOKEN
+    global logger, pihole_client, pihole_auth, API_TOKEN
 
     parser = argparse.ArgumentParser(description="Run the PADD e-Ink display.")
     parser.add_argument('-V', '--version', action='version', version=f'PADD-eink v{__version__}')
@@ -902,8 +903,9 @@ def main():
 
     protocol = "https" if args.secure else "http"
     pihole_url = f"{protocol}://{PIHOLE_IP}/admin/"
+    pihole_auth = f"{protocol}://{PIHOLE_IP}"
 
-    pihole_client = create_pihole_client(PIHOLE_IP, API_TOKEN)
+    pihole_client = create_pihole_client(pihole_auth, API_TOKEN)
     if not pihole_client:
         connection_failed_at_boot = True
 
