@@ -27,20 +27,20 @@ def check_padd_eink_version(current_version, output_format="tui"):
             if output_format == "tui":
                 return f"[bold]PADD-eInk:[/bold]	v{latest_version_str} [bold red]**[/bold red]"
             else: # eink
-                return f"PADD-eInk: 	v{latest_version_str} **"
+                return f"PADD-eInk:         v{latest_version_str} **"
         else:
             # Up to date
             if output_format == "tui":
                 return f"[bold]PADD-eInk:[/bold]	v{current_version} {checkmark}"
             else: # eink
-                return f"PADD-eInk: 	v{current_version} {checkmark}"
+                return f"PADD-eInk:             v{current_version} {checkmark}"
     except Exception:
         # Handle errors (e.g., no internet connection)
         # Return current version without checkmark or stars
         if output_format == "tui":
-            return f"[bold]PADD-eInk:[/bold]	v{current_version}"
+            return f"[bold]PADD-eInk:[/bold]	v{current_version} ?"
         else: # eink
-            return f"PADD-eInk: 	v{current_version}"
+            return f"PADD-eInk:               v{current_version} ?"
 
 
 def format_uptime(seconds):

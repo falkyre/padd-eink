@@ -113,7 +113,7 @@ def draw_qrcode_screen(draw, width, height, url):
     )
 
 
-def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
+def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y,__version__):
     """Draws the main Pi-hole statistics screen."""
     try:
         font_small = ImageFont.truetype(FONT_PATH, FONT_SIZE_SMALL)
@@ -200,7 +200,7 @@ def draw_pihole_stats_screen(draw, width, height, data, header_bottom_y):
         y += line_height_small
 
 
-def draw_system_info_screen(draw, width, height, data, header_bottom_y):
+def draw_system_info_screen(draw, width, height, data, header_bottom_y,__version__):
     try:
         font_bold = ImageFont.truetype(FONT_BOLD_PATH, FONT_SIZE_BODY)
         font_regular = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
@@ -509,7 +509,7 @@ def run_eink_display(
                     )
                     header_bottom_y = draw_header(draw, width, header_logo_image)
                     screens[current_screen_index](
-                        draw, width, height, padd_data, header_bottom_y
+                        draw, width, height, padd_data, header_bottom_y, __version__
                     )
 
                 epd.display(epd.getbuffer(image))
