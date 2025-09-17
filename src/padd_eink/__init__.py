@@ -4,6 +4,7 @@ from .utils import (
     generate_ascii_bar,
     heatmap_generator,
     generate_qrascii,
+    check_padd_eink_version,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "generate_ascii_bar",
     "heatmap_generator",
     "generate_qrascii",
+    check_padd_eink_version,
 ]

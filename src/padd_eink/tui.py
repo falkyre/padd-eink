@@ -12,6 +12,7 @@ from . import (
     generate_ascii_bar,
     heatmap_generator,
     generate_qrascii,
+    check_padd_eink_version,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,13 +184,17 @@ class PiHoleVersions(Container):
 
         any_updates = False
         checkmark = "✓"
-        lines = [f"[bold]PADD-eInk:[/bold]	v{self.__version__} {checkmark}"]
+        
+        padd_eink_version_line = check_padd_eink_version(self.__version__, output_format='tui')
+        lines = [padd_eink_version_line]
+        if "**" in padd_eink_version_line:
+            any_updates = True
 
         components = {"Pi-hole": "core", " Web UI": "web", "    FTL": "ftl"}
         for name, key in components.items():
             comp_data = version_data.get(key)
             if not comp_data:
-                lines.append(f"[bold]{name}:[/bold]	N/A")
+                lines.append(f"[bold]{name}:[/bold]\tN/A")
                 continue
 
             local = comp_data.get("local", {}).get("version", "N/A")
@@ -201,7 +206,7 @@ class PiHoleVersions(Container):
                 status_str = f"{local}[bold red]**[/bold red]"
             else:
                 status_str = f"{local} {checkmark}" if local != "N/A" else "N/A"
-            lines.append(f"[bold]{name}:[/bold]	{status_str}")
+            lines.append(f"[bold]{name}:[/bold]\t{status_str}")
 
         if any_updates:
             lines.append("[bold red]** Update available[/bold red]")

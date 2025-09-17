@@ -1,5 +1,47 @@
 import io
 import qrcode
+import lastversion
+
+
+def check_padd_eink_version(current_version, output_format="tui"):
+    """
+    Checks for a new version of PADD-eInk from the GitHub repository.
+
+    Args:
+        current_version (str): The current version of the script.
+        output_format (str): The format of the output string ('tui' or 'eink').
+
+    Returns:
+        str: A formatted string indicating the version status.
+    """
+    checkmark = "✓"
+    repo = "falkyre/padd-eink"
+    try:
+        latest_version = lastversion.latest(repo, output_format='version', pre=False)
+        
+        # lastversion.latest returns a Version object, convert to string for compare_versions
+        latest_version_str = str(latest_version)
+
+        if compare_versions(latest_version_str, current_version) > 0:
+            # New version available
+            if output_format == "tui":
+                return f"[bold]PADD-eInk:[/bold]	v{latest_version_str} [bold red]**[/bold red]"
+            else: # eink
+                return f"PADD-eInk: 	v{latest_version_str} **"
+        else:
+            # Up to date
+            if output_format == "tui":
+                return f"[bold]PADD-eInk:[/bold]	v{current_version} {checkmark}"
+            else: # eink
+                return f"PADD-eInk: 	v{current_version} {checkmark}"
+    except Exception:
+        # Handle errors (e.g., no internet connection)
+        # Return current version without checkmark or stars
+        if output_format == "tui":
+            return f"[bold]PADD-eInk:[/bold]	v{current_version}"
+        else: # eink
+            return f"PADD-eInk: 	v{current_version}"
+
 
 def format_uptime(seconds):
     """Converts seconds into a human-readable Xd Yh Zm format."""

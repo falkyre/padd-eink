@@ -5,7 +5,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
 
-from . import format_uptime, compare_versions
+from . import format_uptime, compare_versions, check_padd_eink_version
 
 # --- Constants ---
 WHITE = 255
@@ -230,7 +230,7 @@ def draw_system_info_screen(draw, width, height, data, header_bottom_y):
         y += line_height
 
 
-def draw_version_screen(draw, width, height, data, header_bottom_y):
+def draw_version_screen(draw, width, height, data, header_bottom_y, __version__):
     """Draws the component versions screen, indicating available updates."""
     try:
         font_body = ImageFont.truetype(FONT_PATH, FONT_SIZE_BODY)
@@ -246,6 +246,25 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
     line_height = FONT_SIZE_BODY + 10
     any_updates = False
     checkmark = "✓"  # Unicode for checkmark
+    right_align_x = width - 10
+
+    # PADD-eInk version
+    padd_eink_version_line = check_padd_eink_version(__version__, output_format='eink')
+    if "**" in padd_eink_version_line:
+        any_updates = True
+    
+    # Use a raw string or escape the tab character properly
+    parts = padd_eink_version_line.split('\t')
+    padd_eink_label = parts[0]
+    padd_eink_version_str = parts[1].strip() if len(parts) > 1 else ''
+
+    draw.text((10, y), padd_eink_label, font=font_body_bold, fill=BLACK)
+    version_bbox = draw.textbbox((0, 0), padd_eink_version_str, font=font_body)
+    version_width = version_bbox[2] - version_bbox[0]
+    draw.text(
+        (right_align_x - version_width, y), padd_eink_version_str, font=font_body, fill=BLACK
+    )
+    y += line_height
 
     version_data = data.get("version")
     if not version_data:
@@ -277,7 +296,6 @@ def draw_version_screen(draw, width, height, data, header_bottom_y):
         "Web UI:": version_data.get("web"),
         "FTL:": version_data.get("ftl"),
     }
-    right_align_x = width - 10
 
     for name, comp_data in component_names.items():
         version_str, has_update = get_version_status(comp_data)
@@ -396,6 +414,7 @@ def run_eink_display(
     pihole_client_creator,
     splash_duration,
     rotate_interval,
+    __version__,
 ):
     """Initializes and runs the e-Ink display loop."""
     from gpiozero import Button

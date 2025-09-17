@@ -122,6 +122,7 @@ def main():
             pihole_client_creator=create_pihole_client,
             splash_duration=SPLASH_SCREEN_DURATION_SECONDS,
             rotate_interval=SCREEN_AUTO_ROTATE_INTERVAL_SECONDS,
+             __version__=__version__,
         )
 
 

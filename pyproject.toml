@@ -30,6 +30,7 @@ dependencies = [
     "waveshare-epaper; platform_machine == 'armv7l' or platform_machine == 'aarch64' or platform_machine == 'armv6l'",
     "qrcode",
     "textual",
+    "lastversion",
 ]
 
 [project.urls]
