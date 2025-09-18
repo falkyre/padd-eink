@@ -62,6 +62,7 @@ def draw_header(draw, width, header_logo_img):
         font_date = ImageFont.truetype(FONT_PATH, FONT_SIZE_HEADER_DATE)
     except IOError:
         font_title, font_date = ImageFont.load_default(), ImageFont.load_default()
+
     logo_x, logo_y = 5, 5
     title_x = logo_x
     if header_logo_img:
@@ -285,9 +286,9 @@ def draw_version_screen(draw, width, height, data, header_bottom_y, __version__)
                 update_available = True
 
         if update_available:
-            display_str = f"{local}**"
+            display_str = f"  {local}**"
         else:
-            display_str = f"{local} {checkmark}" if local != "N/A" else "N/A"
+            display_str = f"  {local} {checkmark}" if local != "N/A" else "N/A"
 
         return (display_str, update_available)
 
