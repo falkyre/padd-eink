@@ -261,7 +261,7 @@ def draw_version_screen(draw, width, height, data, header_bottom_y, __version__)
 
     draw.text((10, y), padd_eink_label, font=font_body_bold, fill=BLACK)
     version_bbox = draw.textbbox((0, 0), padd_eink_version_str, font=font_body)
-    version_width = version_bbox[2] - version_bbox[0]
+    version_width = version_bbox[2] - version_bbox[0] + 3
     draw.text(
         (right_align_x - version_width, y), padd_eink_version_str, font=font_body, fill=BLACK
     )
