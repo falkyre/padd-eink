@@ -1,7 +1,7 @@
 import logging
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link, Button
-from textual.containers import VerticalScroll, Container, Center, Vertical, Horizontal
+from textual.containers import VerticalScroll, Container, Center, Vertical, Horizontal, Grid
 from textual.screen import ModalScreen
 from textual import work
 from rich.emoji import Emoji
@@ -122,18 +122,28 @@ class AdminUrlModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         """Compose child widgets."""
-        with Horizontal(id="modal-container"):
-            with Vertical(id="qr-link-container"):
-                admin_qr = generate_qrascii(self.pihole_url)
-                yield Link(
+        with Grid(id="dialog"):
+            admin_qr = generate_qrascii(self.pihole_url)
+            yield Center(Link(
                     "Pihole Admin URL",
                     url=self.pihole_url,
                     tooltip=self.pihole_url,
                     id="admin-link",
-                )
-                yield Static(admin_qr, id="admin_qr")
-        with Center():
-            yield Button("Close", variant="primary", id="close-modal")
+                ))
+            yield Center(Static(admin_qr, id="admin_qr"))
+            yield Center(Button("Close", variant="primary", id="close-modal"))
+
+    
+            # with Vertical(id="qr-link-container"):
+            #     admin_qr = generate_qrascii(self.pihole_url)
+            #     yield Link(
+            #         "Pihole Admin URL",
+            #         url=self.pihole_url,
+            #         tooltip=self.pihole_url,
+            #         id="admin-link",
+            #     )
+            #     yield Static(admin_qr, id="admin_qr")
+            # yield Button("Close", variant="primary", id="close-modal")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close-modal":
@@ -212,7 +222,7 @@ class PiHoleVersions(Container):
             lines.append("[bold red]** Update available[/bold red]")
         else:
             lines.append(
-                f"[bold green]{checkmark} {checkmark} SYSTEM IS HEALTHY {checkmark} {checkmark}[/bold green]"
+                f"\t[bold green]{checkmark} {checkmark} SYSTEM IS HEALTHY {checkmark} {checkmark}[/bold green]"
             )
 
         version_text_widget.update("\n".join(lines))

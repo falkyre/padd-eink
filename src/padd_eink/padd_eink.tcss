@@ -4,33 +4,37 @@
     height: 100%;
 }
 
-#admin-qr {
-        height: auto;
-        align: center middle;
-    }
-
 AdminUrlModal {
     align: center middle;
     background: rgba(0, 0, 0, 0.8);
 }
 
-#modal-container {
-    width: 50%;
-    height: 80%;
-    background: $panel-darken-2;
-    border: round $primary-lighten-2;
-    align: center middle;
-}
-
-#qr-link-container {
+#dialog {
+    grid-size: 1;
+    grid-gutter: 1 2;
+    width: 60%;
     height: auto;
+    border: round $primary-lighten-2 80%;
+    background: $panel;
+}
+
+
+#close-modal {  
+    width: auto;
+    background: blue;
+}
+
+#admin_qr {
+    height: auto;
+    width: auto;
+    border: vkey $primary-lighten-2;
+    background: $surface;
+    color: $text;
     align: center middle;
 }
 
-#admin-link {
-    padding-left: 8;
-    align: center middle;
-}
+
+
 
 
 
