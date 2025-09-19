@@ -1,11 +1,35 @@
 import io
 import qrcode
 import lastversion
+from apscheduler.schedulers.background import BackgroundScheduler
+
+# Global variable to cache the latest version
+latest_padd_eink_version = None
+
+def _update_latest_version():
+    """Fetches the latest version from GitHub and updates the global variable."""
+    global latest_padd_eink_version
+    try:
+        repo = "falkyre/padd-eink"
+        latest_version = lastversion.latest(repo, output_format='version', pre=False)
+        latest_padd_eink_version = str(latest_version)
+    except Exception:
+        # In case of an error (e.g., no internet), keep the last known version
+        # or it will remain None on first failure.
+        pass
+
+# Initialize and start the scheduler
+scheduler = BackgroundScheduler()
+# Run immediately, and then every 3 hours
+scheduler.add_job('padd_eink.utils:_update_latest_version', 'interval', hours=3, misfire_grace_time=60)
+scheduler.start()
+# Run the job once at startup
+_update_latest_version()
 
 
 def check_padd_eink_version(current_version, output_format="tui"):
     """
-    Checks for a new version of PADD-eInk from the GitHub repository.
+    Checks for a new version of PADD-eInk using the cached version.
 
     Args:
         current_version (str): The current version of the script.
@@ -15,32 +39,26 @@ def check_padd_eink_version(current_version, output_format="tui"):
         str: A formatted string indicating the version status.
     """
     checkmark = "✓"
-    repo = "falkyre/padd-eink"
-    try:
-        latest_version = lastversion.latest(repo, output_format='version', pre=False)
-        
-        # lastversion.latest returns a Version object, convert to string for compare_versions
-        latest_version_str = str(latest_version)
-
-        if compare_versions(latest_version_str, current_version) > 0:
+    
+    if latest_padd_eink_version:
+        if compare_versions(latest_padd_eink_version, current_version) > 0:
             # New version available
             if output_format == "tui":
-                return f"[bold]PADD-eInk:[/bold]	v{latest_version_str} [bold red]**[/bold red]"
+                return f"[bold]PADD-eInk:[/bold]	v{latest_padd_eink_version} [bold red]**[/bold red]"
             else: # eink
-                return f"PADD-eInk:\tv{latest_version_str} **"
+                return f"PADD-eInk:	v{latest_padd_eink_version} **"
         else:
             # Up to date
             if output_format == "tui":
                 return f"[bold]PADD-eInk:[/bold]	v{current_version} {checkmark}"
             else: # eink
-                return f"PADD-eInk:\t v{current_version} {checkmark}"
-    except Exception:
-        # Handle errors (e.g., no internet connection)
-        # Return current version without checkmark or stars
+                return f"PADD-eInk:	 v{current_version} {checkmark}"
+    else:
+        # Handle cases where the version check failed (e.g., no internet on first run)
         if output_format == "tui":
             return f"[bold]PADD-eInk:[/bold]	v{current_version} ?"
         else: # eink
-            return f"PADD-eInk:\tv{current_version} ?"
+            return f"PADD-eInk:	v{current_version} ?"
 
 
 def format_uptime(seconds):
@@ -145,3 +163,23 @@ def generate_qrascii(pihole_url: str):
     qrstr = f.read()
     # Print the QR code to the console
     return qrstr
+
+
+def generate_qr_code(pihole_url: str):
+    # Create a QR code object
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+
+    # Add data to the QR code
+    qr.add_data(pihole_url)
+    qr.make(fit=True)
+
+    # Create an image from the QR code
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    # Return the image object
+    return img

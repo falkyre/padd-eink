@@ -33,6 +33,14 @@ AdminUrlModal {
     align: center middle;
 }
 
+#admin-link {
+    color: $accent;
+    text-align: center;
+    width: auto;
+    height: auto;
+    padding: 1 0;
+}
+
 
 
 

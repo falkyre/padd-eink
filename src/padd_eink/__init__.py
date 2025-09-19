@@ -13,5 +13,5 @@ __all__ = [
     "generate_ascii_bar",
     "heatmap_generator",
     "generate_qrascii",
-    check_padd_eink_version,
+    "check_padd_eink_version",
 ]
