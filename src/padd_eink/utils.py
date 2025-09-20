@@ -11,9 +11,9 @@ def _update_latest_version():
     global latest_padd_eink_version
     try:
         repo = "falkyre/padd-eink"
-        latest_version = lastversion.latest(repo, output_format='version', pre=False)
+        latest_version = lastversion.latest(repo, output_format='version', pre_ok=False)
         latest_padd_eink_version = str(latest_version)
-    except Exception:
+    except Exception as e:
         # In case of an error (e.g., no internet), keep the last known version
         # or it will remain None on first failure.
         pass
@@ -162,7 +162,9 @@ def generate_qrascii(pihole_url: str):
     f.seek(0)
     qrstr = f.read()
     # Print the QR code to the console
-    return qrstr
+    # String out the white space before and after string 
+    # There are 5 spaces added to front to properly align the qrcode
+    return "    " + qrstr.strip()
 
 
 def generate_qr_code(pihole_url: str):

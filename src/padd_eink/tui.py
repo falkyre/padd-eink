@@ -196,6 +196,7 @@ class PiHoleVersions(Container):
         checkmark = "✓"
         
         padd_eink_version_line = check_padd_eink_version(self.__version__, output_format='tui')
+        self.notify(f"Latest PADD-eInk version: {padd_eink_version_line}",timeout=10)
         lines = [padd_eink_version_line]
         if "**" in padd_eink_version_line:
             any_updates = True
