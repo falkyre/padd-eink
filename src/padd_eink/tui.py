@@ -1,7 +1,7 @@
 import logging
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, ProgressBar, Rule, Link, Button
-from textual.containers import VerticalScroll, Container, Center, Vertical, Horizontal, Grid
+from textual.containers import VerticalScroll, Container, Center, Grid
 from textual.screen import ModalScreen
 from textual import work
 from rich.emoji import Emoji
@@ -25,7 +25,8 @@ class PiHoleStats(Static):
     def on_mount(self) -> None:
         """Set the border title when the widget is mounted."""
         self.border_title = "Pi-hole Stats"
-        self.styles.border = ("heavy", "white")
+        self.styles.border = ("tab", "white")
+        self.styles.border_title_style = "bold"
         self.styles.border_title_align = "center"
 
     def update_content(self, padd_data: dict) -> None:
@@ -57,12 +58,55 @@ class PiHoleStats(Static):
         self.update("\n".join(lines))
 
 
+class FTLStats(Static):
+    """A widget to display FTL statistics."""
+
+    def on_mount(self) -> None:
+        """Set the border title when the widget is mounted."""
+        self.border_title = "FTL Stats"
+        self.styles.border = ("tab", "yellow")
+        self.styles.border_title_style = "bold"
+        self.styles.border_title_align = "center"
+
+    def update_content(self, padd_data: dict) -> None:
+        """Formats and updates the widget's content."""
+        if padd_data.get("error"):
+            self.update(f"[bold red]{padd_data['error']}[/]")
+            return
+        if not padd_data:
+            self.update("No FTL data available.")
+            return
+
+        cache = padd_data.get("cache", {})
+        
+        #Generate the ASCII bar for CPU
+        cpu_per = padd_data.get("%cpu", [0.0])
+        cpu_color = heatmap_generator(cpu_per)
+
+        # Generate the ASCII bar for Memory
+        mem_load = padd_data.get('%mem', 0.0)
+        mem_color = heatmap_generator(mem_load)
+
+        lines = [
+            f"[bold]CPU usage:[/bold]    [{cpu_color}]{cpu_per:.1f}%[/{cpu_color}]",
+            f"[bold]Memory usage:[/bold] [{mem_color}]{mem_load:.1f}%[/{mem_color}]",
+            f"[bold]pid:[/bold]          {padd_data.get('pid', 'N/A')}",
+            "[bold]DNS Cache:[/bold]",
+            f"  [bold]Size:[/bold]     {cache.get('size', 0):,}",
+            f"  [bold]Inserted:[/bold] {cache.get('inserted', 0):,}",
+            f"  [bold]Evicted:[/bold]  {cache.get('evicted', 0):,}",
+        ]
+        self.update("\n".join(lines))
+
+
 class SystemStats(Static):
+
     """A widget to display system statistics."""
 
     def on_mount(self) -> None:
         self.border_title = "System Stats"
-        self.styles.border = ("panel", "blue")
+        self.styles.border = ("tab", "blue")
+        self.styles.border_title_style = "bold"
         self.styles.border_title_align = "center"
 
     def update_content(self, padd_data: dict) -> None:
@@ -196,7 +240,6 @@ class PiHoleVersions(Container):
         checkmark = "✓"
         
         padd_eink_version_line = check_padd_eink_version(self.__version__, output_format='tui')
-        self.notify(f"Latest PADD-eInk version: {padd_eink_version_line}",timeout=10)
         lines = [padd_eink_version_line]
         if "**" in padd_eink_version_line:
             any_updates = True
@@ -221,6 +264,7 @@ class PiHoleVersions(Container):
 
         if any_updates:
             lines.append("[bold red]** Update available[/bold red]")
+            self.notify("[bold red]Updates are available[\bold red]",timeout=10)
         else:
             lines.append(
                 f"\t[bold green]{checkmark} {checkmark} SYSTEM IS HEALTHY {checkmark} {checkmark}[/bold green]"
@@ -254,6 +298,7 @@ class PADD_TUI(App):
         yield Header()
         with VerticalScroll(id="main-container"):
             yield PiHoleStats("Loading...")
+            yield FTLStats("Loading...")
             yield SystemStats("Loading...")
             yield PiHoleVersions(
                 self.pihole_url, self.__version__, id="sidebar"
@@ -287,6 +332,7 @@ class PADD_TUI(App):
 
             # Call the update methods on each custom widget
             self.call_from_thread(self.query_one(PiHoleStats).update_content, padd_data)
+            self.call_from_thread(self.query_one(FTLStats).update_content, padd_data)
             self.call_from_thread(self.query_one(SystemStats).update_content, padd_data)
             self.call_from_thread(
                 self.query_one(PiHoleVersions).update_content, padd_data
@@ -304,6 +350,7 @@ class PADD_TUI(App):
         """Called when the user presses the 'r' key."""
         # Update widgets to show a refreshing message
         self.query_one(PiHoleStats).update("Refreshing...")
+        self.query_one(FTLStats).update("Refreshing...")
         self.query_one(SystemStats).update("Refreshing...")
         self.query_one(PiHoleVersions).query_one("#version-text").update(
             "Refreshing..."

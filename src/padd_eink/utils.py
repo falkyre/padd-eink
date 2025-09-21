@@ -13,7 +13,7 @@ def _update_latest_version():
         repo = "falkyre/padd-eink"
         latest_version = lastversion.latest(repo, output_format='version', pre_ok=False)
         latest_padd_eink_version = str(latest_version)
-    except Exception as e:
+    except Exception:
         # In case of an error (e.g., no internet), keep the last known version
         # or it will remain None on first failure.
         pass
